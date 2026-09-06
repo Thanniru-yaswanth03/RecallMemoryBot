@@ -1,0 +1,47 @@
+# Maven Build Output
+target/
+*.jar
+*.war
+*.ear
+*.class
+
+# Logs
+logs/
+*.log
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.token
+*.pem
+*.p12
+secrets.yml
+secrets.properties
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Eclipse
+.project
+.classpath
+.settings/
+bin/
+
+# Visual Studio Code
+.vscode/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary and Scratch Files
+scratch/
+*.tmp
+*.bak

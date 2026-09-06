@@ -1,0 +1,75 @@
+spring:
+  application:
+    name: recall-memory-bot
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/recall_db}
+    username: ${SPRING_DATASOURCE_USERNAME:recall_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:recall_pass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 20000
+      idle-timeout: 300000
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    baseline-on-migrate: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 20
+
+server:
+  port: ${PORT:${SERVER_PORT:8080}}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+    info:
+      enabled: true
+
+recall:
+  telegram:
+    mode: ${TELEGRAM_MODE:polling}
+    bot-username: ${TELEGRAM_BOT_USERNAME:recall_memory_bot}
+    bot-token: ${TELEGRAM_BOT_TOKEN:placeholder_token}
+    webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:placeholder_secret}
+  ai:
+    openrouter-api-key: ${OPENROUTER_API_KEY:placeholder_api_key}
+    chat-model: ${RECALL_AI_CHAT_MODEL:anthropic/claude-3-haiku}
+    embedding-model: ${RECALL_AI_EMBEDDING_MODEL:openai/text-embedding-3-small}
+    embedding-dimension: ${RECALL_AI_EMBEDDING_DIMENSION:1536}
+    timeout-seconds: 30
+    max-output-tokens: 800
+    temperature: 0.2
+  search:
+    max-candidates: 15
+    rrf-k: 60
+    max-context-tokens: 2500
+  rate-limit:
+    user-per-minute: ${RECALL_RATE_LIMIT_USER_PER_MIN:3}
+    group-per-five-minutes: ${RECALL_RATE_LIMIT_GROUP_PER_5MIN:10}
+  admin:
+    enabled: ${RECALL_ADMIN_ENABLED:true}
+    username: ${RECALL_ADMIN_USERNAME:admin}
+    password: ${RECALL_ADMIN_PASSWORD:admin_recall_secret}
+    session-ttl-hours: ${RECALL_ADMIN_SESSION_TTL_HOURS:12}
+    max-login-attempts: ${RECALL_ADMIN_MAX_LOGIN_ATTEMPTS:5}
+    lockout-minutes: ${RECALL_ADMIN_LOCKOUT_MINUTES:15}

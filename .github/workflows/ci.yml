@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-test-package:
+    name: Build, Test & Package
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: recall_db
+          POSTGRES_USER: recall_user
+          POSTGRES_PASSWORD: recall_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U recall_user -d recall_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Grant Execute Permissions to Maven Wrapper
+        run: chmod +x mvnw
+
+      - name: Run Full Maven Verification Suite
+        run: ./mvnw clean verify -B
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/recall_db
+          SPRING_DATASOURCE_USERNAME: recall_user
+          SPRING_DATASOURCE_PASSWORD: recall_pass
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Production Docker Image
+        run: docker build -t recall-memory-bot:latest .
+
+      - name: Verify Docker Image Size Under 250MB
+        run: |
+          IMAGE_SIZE_BYTES=$(docker inspect -f "{{ .Size }}" recall-memory-bot:latest)
+          IMAGE_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $IMAGE_SIZE_BYTES / 1024 / 1024}")
+          echo "Built Docker Image Size: ${IMAGE_SIZE_MB} MB"
+          MAX_SIZE_MB=250.00
+          IS_OVER_LIMIT=$(awk "BEGIN {print ($IMAGE_SIZE_MB > $MAX_SIZE_MB) ? 1 : 0}")
+          if [ "$IS_OVER_LIMIT" -eq 1 ]; then
+            echo "Error: Docker image size (${IMAGE_SIZE_MB} MB) exceeds maximum allowed threshold of 250MB!"
+            exit 1
+          fi
+          echo "Image size check passed: ${IMAGE_SIZE_MB} MB <= 250 MB"

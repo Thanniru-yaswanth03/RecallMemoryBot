@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RecallMemoryBot Admin Dashboard</title>
+    <link rel="stylesheet" href="/admin/css/admin.css">
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <span class="brand-icon">🧠</span>
+            <div>
+                <div class="brand-title">RecallMemoryBot</div>
+                <div class="brand-subtitle">Console</div>
+            </div>
+        </div>
+
+        <ul class="nav-menu">
+            <li class="nav-item active" data-view="dashboard">
+                <a href="#dashboard"><span class="nav-icon">📊</span> Overview</a>
+            </li>
+            <li class="nav-item" data-view="groups">
+                <a href="#groups"><span class="nav-icon">👥</span> Groups</a>
+            </li>
+            <li class="nav-item" data-view="messages">
+                <a href="#messages"><span class="nav-icon">💬</span> Messages</a>
+            </li>
+            <li class="nav-item" data-view="memories">
+                <a href="#memories"><span class="nav-icon">💡</span> Memories</a>
+            </li>
+            <li class="nav-item" data-view="activity">
+                <a href="#activity"><span class="nav-icon">⚡</span> Activity</a>
+            </li>
+            <li class="nav-item" data-view="system">
+                <a href="#system"><span class="nav-icon">⚙️</span> System Health</a>
+            </li>
+        </ul>
+
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <span class="user-name" id="operatorName">Operator</span>
+                <span class="user-role">Administrator</span>
+            </div>
+            <button class="btn-logout" onclick="AdminApi.logout()" title="Sign Out">Logout</button>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+                <h1 class="page-title" id="pageTitle">System Overview</h1>
+            </div>
+
+            <div class="top-bar-right">
+                <div class="status-pill badge-success" id="overallStatusBadge">
+                    <span class="status-dot" style="background-color: var(--success)"></span>
+                    <span id="overallStatusText">Healthy</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="content-area">
+            <!-- 1. DASHBOARD VIEW -->
+            <section id="view-dashboard" class="view-panel active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-label">Enrolled Groups</span>
+                            <span class="stat-icon">👥</span>
+                        </div>
+                        <div class="stat-value" id="statGroups">-</div>
+                        <div class="stat-desc" id="statActiveGroups">0 active groups</div>
+                    </div>
+
+                    <div class="stat-card cyan">
+                        <div class="stat-header">
+                            <span class="stat-label">Observed Users</span>
+                            <span class="stat-icon">👤</span>
+                        </div>
+                        <div class="stat-value" id="statUsers">-</div>
+                        <div class="stat-desc">Distinct group participants</div>
+                    </div>
+
+                    <div class="stat-card emerald">
+                        <div class="stat-header">
+                            <span class="stat-label">Stored Messages</span>
+                            <span class="stat-icon">💬</span>
+                        </div>
+                        <div class="stat-value" id="statMessages">-</div>
+                        <div class="stat-desc">Ingested conversational history</div>
+                    </div>
+
+                    <div class="stat-card amber">
+                        <div class="stat-header">
+                            <span class="stat-label">Extracted Memories</span>
+                            <span class="stat-icon">💡</span>
+                        </div>
+                        <div class="stat-value" id="statMemories">-</div>
+                        <div class="stat-desc">Explicit facts & decisions</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-label">Vector Embeddings</span>
+                            <span class="stat-icon">📐</span>
+                        </div>
+                        <div class="stat-value" id="statEmbeddings">-</div>
+                        <div class="stat-desc" id="statPendingEmbeddings">0 pending vectorization</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Infrastructure Health & AI Status</h2>
+                    </div>
+                    <div class="card-body">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
+                            <div>
+                                <div class="stat-label">Database (PostgreSQL 16)</div>
+                                <div style="margin-top: 0.5rem;"><span class="badge badge-success" id="healthDb">CONNECTED</span></div>
+                            </div>
+                            <div>
+                                <div class="stat-label">pgvector Extension</div>
+                                <div style="margin-top: 0.5rem;"><span class="badge badge-success" id="healthPgvector">AVAILABLE</span></div>
+                            </div>
+                            <div>
+                                <div class="stat-label">AI Inference Provider</div>
+                                <div style="margin-top: 0.5rem;"><span class="badge badge-success" id="healthAi">OPERATIONAL</span></div>
+                            </div>
+                            <div>
+                                <div class="stat-label">Chat & Embedding Models</div>
+                                <div style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-secondary);" id="healthModels">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Recent Operational Activity</h2>
+                        <a href="#activity" class="btn-page" style="text-decoration: none;">View All</a>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Event</th>
+                                    <th>Group</th>
+                                    <th>Status</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dashboardActivityTbody">
+                                <tr><td colspan="5" class="state-container">Loading recent events...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 2. GROUPS VIEW -->
+            <section id="view-groups" class="view-panel">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Enrolled Telegram Groups</h2>
+                        <div class="filter-bar">
+                            <input type="text" id="groupSearchInput" class="form-control" placeholder="Search by title..." oninput="debounceGroupSearch()">
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Telegram Chat ID</th>
+                                    <th>Title</th>
+                                    <th>Members</th>
+                                    <th>Messages</th>
+                                    <th>Memories</th>
+                                    <th>Last Activity</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="groupsTbody">
+                                <tr><td colspan="9" class="state-container">Loading groups...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination-wrapper">
+                        <button id="groupPrevBtn" class="btn-page" onclick="changeGroupPage(-1)">Previous</button>
+                        <span id="groupPageInfo" style="font-size: 0.85rem; color: var(--text-secondary);">Page 1</span>
+                        <button id="groupNextBtn" class="btn-page" onclick="changeGroupPage(1)">Next</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. MESSAGES VIEW -->
+            <section id="view-messages" class="view-panel">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Message Ingestion History</h2>
+                        <div class="filter-bar">
+                            <select id="msgGroupFilter" class="form-control" onchange="reloadMessages()">
+                                <option value="">All Groups</option>
+                            </select>
+                            <input type="text" id="msgSearchInput" class="form-control" placeholder="Search message content..." oninput="debounceMessageSearch()">
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Msg ID</th>
+                                    <th>Group</th>
+                                    <th>Author</th>
+                                    <th>Type</th>
+                                    <th>Date</th>
+                                    <th>Vectorized</th>
+                                    <th>Content Snippet</th>
+                                </tr>
+                            </thead>
+                            <tbody id="messagesTbody">
+                                <tr><td colspan="7" class="state-container">Loading messages...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination-wrapper">
+                        <button id="msgPrevBtn" class="btn-page" onclick="changeMessagePage(-1)">Previous</button>
+                        <span id="msgPageInfo" style="font-size: 0.85rem; color: var(--text-secondary);">Page 1</span>
+                        <button id="msgNextBtn" class="btn-page" onclick="changeMessagePage(1)">Next</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. MEMORIES VIEW -->
+            <section id="view-memories" class="view-panel">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Extracted & Explicit Memories</h2>
+                        <div class="filter-bar">
+                            <select id="memGroupFilter" class="form-control" onchange="reloadMemories()">
+                                <option value="">All Groups</option>
+                            </select>
+                            <select id="memTypeFilter" class="form-control" onchange="reloadMemories()">
+                                <option value="">All Types</option>
+                                <option value="DECISION">Decision</option>
+                                <option value="FACT">Fact</option>
+                                <option value="COMMITMENT">Commitment</option>
+                                <option value="SUMMARY">Summary</option>
+                            </select>
+                            <input type="text" id="memSearchInput" class="form-control" placeholder="Search memory text..." oninput="debounceMemorySearch()">
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Group</th>
+                                    <th>Type</th>
+                                    <th>Confidence</th>
+                                    <th>Created At</th>
+                                    <th>Content</th>
+                                    <th>Source Provenance</th>
+                                </tr>
+                            </thead>
+                            <tbody id="memoriesTbody">
+                                <tr><td colspan="7" class="state-container">Loading memories...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination-wrapper">
+                        <button id="memPrevBtn" class="btn-page" onclick="changeMemoryPage(-1)">Previous</button>
+                        <span id="memPageInfo" style="font-size: 0.85rem; color: var(--text-secondary);">Page 1</span>
+                        <button id="memNextBtn" class="btn-page" onclick="changeMemoryPage(1)">Next</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 5. ACTIVITY VIEW -->
+            <section id="view-activity" class="view-panel">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Live Operational Activity Log</h2>
+                        <div class="filter-bar">
+                            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary);">
+                                <input type="checkbox" id="activityAutoRefresh" checked onchange="toggleActivityRefresh()"> Auto-refresh (5s)
+                            </label>
+                            <button class="btn-page" onclick="loadActivity()">Refresh Now</button>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Event ID</th>
+                                    <th>Timestamp</th>
+                                    <th>Type</th>
+                                    <th>Group</th>
+                                    <th>Status</th>
+                                    <th>Latency</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="activityTbody">
+                                <tr><td colspan="7" class="state-container">Loading activity log...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 6. SYSTEM HEALTH VIEW -->
+            <section id="view-system" class="view-panel">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">JVM & Infrastructure Diagnostics</h2>
+                        <button class="btn-page" onclick="loadSystemDiagnostics()">Refresh Diagnostics</button>
+                    </div>
+                    <div class="card-body">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem;">
+                            <!-- JVM Card -->
+                            <div style="background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-md);">
+                                <h3 style="font-size: 1rem; margin-bottom: 1rem;">JVM & Process</h3>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Runtime: <strong id="diagJvmVersion" style="color: var(--text-primary);">-</strong>
+                                </p>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Processors: <strong id="diagProcessors" style="color: var(--text-primary);">-</strong>
+                                </p>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Active Threads: <strong id="diagThreads" style="color: var(--text-primary);">-</strong>
+                                </p>
+                                <div style="margin-top: 1rem;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.35rem;">
+                                        <span>Heap Utilization</span>
+                                        <span id="diagHeapPercent">0%</span>
+                                    </div>
+                                    <div style="width: 100%; height: 8px; background: var(--border-color); border-radius: 4px; overflow: hidden;">
+                                        <div id="diagHeapBar" style="width: 0%; height: 100%; background: var(--accent);"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Database Card -->
+                            <div style="background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-md);">
+                                <h3 style="font-size: 1rem; margin-bottom: 1rem;">PostgreSQL & HikariCP Pool</h3>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Status: <span id="diagDbStatus" class="badge badge-success">CONNECTED</span>
+                                </p>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Active Connections: <strong id="diagDbActive" style="color: var(--text-primary);">-</strong>
+                                </p>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Idle Connections: <strong id="diagDbIdle" style="color: var(--text-primary);">-</strong>
+                                </p>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    pgvector Extension: <span id="diagPgvector" class="badge badge-success">AVAILABLE</span>
+                                </p>
+                            </div>
+
+                            <!-- Vectorization & Updates -->
+                            <div style="background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-md);">
+                                <h3 style="font-size: 1rem; margin-bottom: 1rem;">Vectorization & Updates</h3>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Total Messages: <strong id="diagTotalMsgs" style="color: var(--text-primary);">-</strong>
+                                </p>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Embedded Messages: <strong id="diagTotalEmbedded" style="color: var(--text-primary);">-</strong>
+                                </p>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Coverage: <strong id="diagCoverage" style="color: var(--text-primary);">-</strong>
+                                </p>
+                                <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                    Processed Telegram Updates: <strong id="diagUpdatesProcessed" style="color: var(--text-primary);">-</strong>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Group Detail Slide-over / Modal -->
+    <div id="groupDetailModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modalGroupTitle" class="card-title">Group Details</h3>
+                <button class="btn-close" onclick="closeGroupModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalGroupBody">
+                Loading group details...
+            </div>
+            <div class="modal-footer">
+                <button class="btn-page" onclick="closeGroupModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/admin/js/admin-api.js"></script>
+    <script src="/admin/js/admin-app.js"></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# ============================================================
+# Caddy Reverse Proxy Configuration with Automatic HTTPS
+# Replace 'bot.yourdomain.com' with your verified domain.
+# ============================================================
+
+{$DOMAIN:bot.yourdomain.com} {
+    # Encode responses using modern compression
+    encode zstd gzip
+
+    # Reverse proxy inbound traffic to Spring Boot container
+    reverse_proxy app:8080 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        -Server
+    }
+
+    # Access logging
+    log {
+        output stdout
+        format console
+    }
+}

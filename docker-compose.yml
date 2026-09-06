@@ -1,0 +1,61 @@
+services:
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: recall-pgvector
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-recall_db}
+      POSTGRES_USER: ${POSTGRES_USER:-recall_user}
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-recall_pass}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recall_user -d recall_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: recall-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      pgvector:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://pgvector:5432/${POSTGRES_DB:-recall_db}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-recall_user}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-recall_pass}
+      TELEGRAM_MODE: ${TELEGRAM_MODE:-polling}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-recall_memory_bot}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      RECALL_AI_CHAT_MODEL: ${RECALL_AI_CHAT_MODEL:-anthropic/claude-3-haiku}
+      RECALL_AI_EMBEDDING_MODEL: ${RECALL_AI_EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      RECALL_AI_EMBEDDING_DIMENSION: ${RECALL_AI_EMBEDDING_DIMENSION:-1536}
+      RECALL_RATE_LIMIT_USER_PER_MIN: ${RECALL_RATE_LIMIT_USER_PER_MIN:-3}
+      RECALL_RATE_LIMIT_GROUP_PER_5MIN: ${RECALL_RATE_LIMIT_GROUP_PER_5MIN:-10}
+      RECALL_ADMIN_ENABLED: ${RECALL_ADMIN_ENABLED:-true}
+      RECALL_ADMIN_USERNAME: ${RECALL_ADMIN_USERNAME:-admin}
+      RECALL_ADMIN_PASSWORD: ${RECALL_ADMIN_PASSWORD:-admin_recall_secret}
+      RECALL_ADMIN_SESSION_TTL_HOURS: ${RECALL_ADMIN_SESSION_TTL_HOURS:-12}
+      RECALL_ADMIN_MAX_LOGIN_ATTEMPTS: ${RECALL_ADMIN_MAX_LOGIN_ATTEMPTS:-5}
+      RECALL_ADMIN_LOCKOUT_MINUTES: ${RECALL_ADMIN_LOCKOUT_MINUTES:-15}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  pgdata:
