@@ -267,12 +267,18 @@ RecallMemoryBotProject/
 - **Docker Desktop** (for local pgvector)
 - **Maven 3.9+** (or use bundled `./mvnw.cmd`)
 
-### 1. Start Local PostgreSQL + pgvector
+### 1. Clone the Repository
+```bash
+git clone https://github.com/Thanniru-yaswanth03/RecallMemoryBot.git
+cd RecallMemoryBot/RecallMemoryBotProject
+```
+
+### 2. Start Local PostgreSQL + pgvector
 ```bash
 docker compose up -d pgvector
 ```
 
-### 2. Configure Environment
+### 3. Configure Environment
 Create `.env` by copying `.env.example`:
 ```bash
 cp .env.example .env
@@ -289,7 +295,7 @@ RECALL_ADMIN_USERNAME=admin
 RECALL_ADMIN_PASSWORD=your_local_admin_password
 ```
 
-### 3. Run the Application
+### 4. Run the Application
 On Windows:
 ```powershell
 .\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=dev
@@ -299,7 +305,7 @@ On Linux / macOS:
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-### 4. Verify Local Health
+### 5. Verify Local Health
 ```bash
 curl http://localhost:8080/actuator/health
 ```
@@ -307,6 +313,9 @@ curl http://localhost:8080/actuator/health
 ---
 
 ## 11. Environment Variables Reference
+
+> [!IMPORTANT]
+> **Secret Management Policy**: All sensitive credentials (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `OPENROUTER_API_KEY`, `SPRING_DATASOURCE_PASSWORD`, and `RECALL_ADMIN_PASSWORD`) must **always** be supplied at runtime via environment variables or a secure cloud secrets manager. **Never commit a populated `.env` file, credentials, or production passwords to version control.** The project `.gitignore` explicitly excludes `.env` and secret files.
 
 | Variable Name | Purpose | Required in Prod? | Contains Secret? |
 |---|---|:---:|:---:|

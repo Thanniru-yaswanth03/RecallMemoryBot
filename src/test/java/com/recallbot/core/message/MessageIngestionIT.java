@@ -11,6 +11,7 @@ import com.recallbot.telegram.dto.ChatDto;
 import com.recallbot.telegram.dto.MessageDto;
 import com.recallbot.telegram.dto.UpdateDto;
 import com.recallbot.telegram.dto.UserDto;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,6 +60,11 @@ class MessageIngestionIT extends BasePostgresIntegrationTest {
         jdbcClient.sql("DELETE FROM groups").update();
         jdbcClient.sql("DELETE FROM users").update();
         jdbcClient.sql("DELETE FROM telegram_updates").update();
+    }
+
+    @AfterEach
+    void tearDown() {
+        cleanUp();
     }
 
     @Test

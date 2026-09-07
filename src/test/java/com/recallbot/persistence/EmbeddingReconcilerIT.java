@@ -9,12 +9,14 @@ import com.recallbot.core.message.MessageEntity;
 import com.recallbot.core.message.MessageRepository;
 import com.recallbot.core.user.UserEntity;
 import com.recallbot.core.user.UserRepository;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.time.Instant;
 import java.util.List;
@@ -44,8 +46,28 @@ class EmbeddingReconcilerIT extends BasePostgresIntegrationTest {
     @Autowired
     private EmbeddingReconciler embeddingReconciler;
 
+    @Autowired
+    private JdbcClient jdbcClient;
+
     @MockBean
     private EmbeddingService embeddingService;
+
+    @BeforeEach
+    void cleanUp() {
+        jdbcClient.sql("DELETE FROM message_embeddings").update();
+        jdbcClient.sql("DELETE FROM memory_sources").update();
+        jdbcClient.sql("DELETE FROM memories").update();
+        jdbcClient.sql("DELETE FROM messages").update();
+        jdbcClient.sql("DELETE FROM group_memberships").update();
+        jdbcClient.sql("DELETE FROM groups").update();
+        jdbcClient.sql("DELETE FROM users").update();
+        jdbcClient.sql("DELETE FROM telegram_updates").update();
+    }
+
+    @AfterEach
+    void tearDown() {
+        cleanUp();
+    }
 
     private float[] createTestVector(float base) {
         float[] v = new float[DIMENSION];
@@ -56,7 +78,6 @@ class EmbeddingReconcilerIT extends BasePostgresIntegrationTest {
     }
 
     @Test
-    @Transactional
     @DisplayName("Reconciler detects un-embedded messages and backfills them in batches")
     void reconcilesMissingEmbeddings() {
         GroupEntity group = groupRepository.save(new GroupEntity(-10099001122L, "Reconciler Test Group"));
