@@ -1,6 +1,9 @@
 package com.recallbot.ai.openrouter;
 
 import com.recallbot.ai.AIService;
+import com.recallbot.ai.exception.AIProviderCreditExhaustedException;
+import com.recallbot.ai.exception.AIProviderRateLimitException;
+import com.recallbot.ai.exception.AIProviderUnavailableException;
 import com.recallbot.ai.openrouter.dto.ChatCompletionRequest;
 import com.recallbot.ai.openrouter.dto.ChatCompletionResponse;
 import com.recallbot.config.properties.RecallProperties;
@@ -87,12 +90,12 @@ public class OpenRouterChatClient implements AIService {
     public String getModelName() {
         return properties.ai() != null && properties.ai().chatModel() != null
                 ? properties.ai().chatModel()
-                : "anthropic/claude-3-haiku";
+                : "nex-agi/nex-n2.5-pro:free";
     }
 
     private static final java.util.regex.Pattern AFFORDABLE_TOKENS_PATTERN =
             java.util.regex.Pattern.compile("can only afford\\s+(\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE);
-    private static final int MIN_AFFORDABLE_TOKENS_FLOOR = 150;
+    private static final int MIN_AFFORDABLE_COMPLETION_FLOOR = 50;
 
     private String executeWithRetry(ChatCompletionRequest initialRequest, String apiKey) {
         long backoff = initialBackoffMs;
@@ -126,40 +129,49 @@ public class OpenRouterChatClient implements AIService {
                         request.model(), totalDurationMs, attempt);
 
                 return content.trim();
+            } catch (AIProviderCreditExhaustedException | AIProviderRateLimitException | AIProviderUnavailableException e) {
+                throw e;
             } catch (HttpClientErrorException e) {
                 lastException = e;
                 if (e.getStatusCode().value() == 402) {
                     String responseBody = e.getResponseBodyAsString();
-                    int currentMax = request.maxTokens() != null ? request.maxTokens() : 400;
-                    Integer affordableTokens = extractAffordableTokens(responseBody);
+                    Integer affordableTotal = extractAffordableTokens(responseBody);
+                    int promptEstimate = estimatePromptTokens(request);
 
-                    int adjustedTokens;
-                    if (affordableTokens != null) {
-                        if (affordableTokens < MIN_AFFORDABLE_TOKENS_FLOOR) {
-                            log.error("OpenRouter credit balance is exhausted or insufficient for model '{}' (can only afford {} tokens, below floor of {}): {}",
-                                    request.model(), affordableTokens, MIN_AFFORDABLE_TOKENS_FLOOR, responseBody);
-                            throw new IllegalStateException("OpenRouter credits insufficient: can only afford " + affordableTokens + " tokens", e);
-                        }
-                        adjustedTokens = Math.max(MIN_AFFORDABLE_TOKENS_FLOOR, affordableTokens - 20);
-                    } else {
-                        adjustedTokens = Math.max(MIN_AFFORDABLE_TOKENS_FLOOR, (int) (currentMax * 0.5));
+                    if (affordableTotal != null && affordableTotal <= promptEstimate) {
+                        log.error("OpenRouter credit balance is exhausted for model '{}': account can only afford {} total tokens, but prompt requires ~{} tokens: {}",
+                                request.model(), affordableTotal, promptEstimate, responseBody);
+                        throw new AIProviderCreditExhaustedException(
+                                "OpenRouter credits insufficient: prompt requires ~" + promptEstimate + " tokens, but account can only afford " + affordableTotal + " total tokens", e);
                     }
 
-                    if (adjustedTokens < currentMax && attempt < MAX_ATTEMPTS) {
-                        log.warn("OpenRouter HTTP 402 Payment Required: token reservation limit reached (requested {} tokens). Adaptively reducing maxTokens to {} and retrying immediately...",
-                                currentMax, adjustedTokens);
+                    int affordableCompletion = (affordableTotal != null)
+                            ? (affordableTotal - promptEstimate)
+                            : (request.maxTokens() != null ? request.maxTokens() / 2 : 150);
+
+                    if (request.maxTokens() != null) {
+                        affordableCompletion = Math.min(affordableCompletion, request.maxTokens());
+                    }
+
+                    if (affordableCompletion >= MIN_AFFORDABLE_COMPLETION_FLOOR
+                            && attempt == 1
+                            && request.maxTokens() != null
+                            && affordableCompletion < request.maxTokens()) {
+                        log.warn("OpenRouter HTTP 402: total token reservation exceeds affordable budget ({}). Reducing maxTokens from {} to {} and retrying once...",
+                                affordableTotal, request.maxTokens(), affordableCompletion);
                         request = new ChatCompletionRequest(
                                 request.model(),
                                 request.messages(),
-                                adjustedTokens,
+                                affordableCompletion,
                                 request.temperature()
                         );
                         continue;
                     }
 
-                    log.error("OpenRouter credit balance is exhausted or insufficient for model '{}' (HTTP 402). Please add credits at https://openrouter.ai/settings/credits: {}",
+                    log.error("OpenRouter credit balance is exhausted or insufficient for model '{}' (HTTP 402): {}",
                             request.model(), responseBody);
-                    throw new IllegalStateException("OpenRouter credits insufficient for model " + request.model() + ". Add credits or lower max tokens.", e);
+                    throw new AIProviderCreditExhaustedException(
+                            "OpenRouter credits insufficient for model " + request.model() + ". Add credits or use a free model.", e);
                 }
 
                 if (e.getStatusCode().value() == 429) {
@@ -170,6 +182,7 @@ public class OpenRouterChatClient implements AIService {
                         backoff *= 2;
                         continue;
                     }
+                    throw new com.recallbot.ai.exception.AIProviderRateLimitException("OpenRouter rate limit exceeded after " + MAX_ATTEMPTS + " attempts", e);
                 }
 
                 log.error("OpenRouter client error HTTP {}: {}", e.getStatusCode(), e.getStatusText());
@@ -197,7 +210,24 @@ public class OpenRouterChatClient implements AIService {
             }
         }
 
-        throw new IllegalStateException("OpenRouter chat completion failed after " + MAX_ATTEMPTS + " attempts", lastException);
+        if (lastException instanceof HttpClientErrorException.TooManyRequests) {
+            throw new com.recallbot.ai.exception.AIProviderRateLimitException("OpenRouter rate limit exceeded after " + MAX_ATTEMPTS + " attempts", lastException);
+        }
+
+        throw new com.recallbot.ai.exception.AIProviderUnavailableException("OpenRouter chat completion failed after " + MAX_ATTEMPTS + " attempts: " + (lastException != null ? lastException.getMessage() : "unknown error"), lastException);
+    }
+
+    private int estimatePromptTokens(ChatCompletionRequest request) {
+        if (request == null || request.messages() == null) {
+            return 0;
+        }
+        int chars = 0;
+        for (var msg : request.messages()) {
+            if (msg.content() != null) {
+                chars += msg.content().length();
+            }
+        }
+        return (chars / 4) + (request.messages().size() * 4);
     }
 
     private Integer extractAffordableTokens(String responseBody) {

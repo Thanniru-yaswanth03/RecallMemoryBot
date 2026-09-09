@@ -173,10 +173,10 @@ class OpenRouterChatClientTest {
                 .andExpect(jsonPath("$.max_tokens").value(800))
                 .andRespond(withStatus(HttpStatus.PAYMENT_REQUIRED).body(error402).contentType(MediaType.APPLICATION_JSON));
 
-        // Second attempt with reduced tokens (705 - 20 = 685) succeeds
+        // Second attempt with reduced tokens (705 budget - 10 prompt tokens = 695) succeeds
         mockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(jsonPath("$.max_tokens").value(685))
+                .andExpect(jsonPath("$.max_tokens").value(695))
                 .andRespond(withSuccess(successResponse, MediaType.APPLICATION_JSON));
 
         String answer = client.generateGroundedAnswer("System", "User");
@@ -186,7 +186,7 @@ class OpenRouterChatClientTest {
     }
 
     @Test
-    @DisplayName("Fails with clear error when OpenRouter credits are completely exhausted (below minimum floor)")
+    @DisplayName("Fails with AIProviderCreditExhaustedException when OpenRouter credits are completely exhausted (below minimum floor)")
     void failsOnHttp402WhenCreditsCompletelyExhausted() {
         String error402Exhausted = """
                 {
@@ -202,8 +202,63 @@ class OpenRouterChatClientTest {
                 .andRespond(withStatus(HttpStatus.PAYMENT_REQUIRED).body(error402Exhausted).contentType(MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> client.generateGroundedAnswer("System", "User"))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(com.recallbot.ai.exception.AIProviderCreditExhaustedException.class)
                 .hasMessageContaining("OpenRouter credits insufficient");
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Fails with AIProviderCreditExhaustedException immediately when prompt tokens alone exceed affordable budget")
+    void failsOnHttp402WhenPromptExceedsAffordableTokens() {
+        String error402PromptExceeds = """
+                {
+                  "error": {
+                    "message": "This request requires more credits, or fewer max_tokens. You requested up to 800 tokens, but can only afford 8.",
+                    "code": 402
+                  }
+                }
+                """;
+
+        mockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.PAYMENT_REQUIRED).body(error402PromptExceeds).contentType(MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.generateGroundedAnswer("System", "User"))
+                .isInstanceOf(com.recallbot.ai.exception.AIProviderCreditExhaustedException.class)
+                .hasMessageContaining("prompt requires ~10 tokens, but account can only afford 8 total tokens");
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Throws AIProviderRateLimitException when all retry attempts fail with HTTP 429")
+    void throwsRateLimitExceptionWhenAllAttemptsFail() {
+        for (int i = 0; i < OpenRouterChatClient.MAX_ATTEMPTS; i++) {
+            mockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                    .andExpect(method(HttpMethod.POST))
+                    .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+        }
+
+        assertThatThrownBy(() -> client.generateGroundedAnswer("System", "User"))
+                .isInstanceOf(com.recallbot.ai.exception.AIProviderRateLimitException.class)
+                .hasMessageContaining("OpenRouter rate limit exceeded");
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Throws AIProviderUnavailableException when server returns HTTP 500 across all attempts")
+    void throwsUnavailableExceptionWhenServerFails() {
+        for (int i = 0; i < OpenRouterChatClient.MAX_ATTEMPTS; i++) {
+            mockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                    .andExpect(method(HttpMethod.POST))
+                    .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+        }
+
+        assertThatThrownBy(() -> client.generateGroundedAnswer("System", "User"))
+                .isInstanceOf(com.recallbot.ai.exception.AIProviderUnavailableException.class)
+                .hasMessageContaining("OpenRouter chat completion failed");
 
         mockServer.verify();
     }

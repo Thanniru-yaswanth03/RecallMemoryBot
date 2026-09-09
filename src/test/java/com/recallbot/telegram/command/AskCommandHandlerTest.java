@@ -64,6 +64,8 @@ class AskCommandHandlerTest {
     private GroupEntity mockGroup;
     private UserEntity mockUser;
 
+    private com.recallbot.admin.activity.AdminActivityBuffer adminActivityBuffer;
+
     @BeforeEach
     void setUp() {
         promptBuilder = new PromptBuilder();
@@ -88,6 +90,8 @@ class AskCommandHandlerTest {
                 properties,
                 rateLimiter
         );
+        adminActivityBuffer = new com.recallbot.admin.activity.AdminActivityBuffer();
+        handler.setAdminActivityBuffer(adminActivityBuffer);
 
         mockGroup = new GroupEntity(telegramChatId, "Test Group");
         mockGroup.setId(databaseGroupId);
@@ -223,6 +227,129 @@ class AskCommandHandlerTest {
                 isNull(),
                 eq(telegramMessageId)
         );
+    }
+
+    @Test
+    @DisplayName("Handles AI provider credit exhaustion with clear guidance and admin activity recording")
+    void handlesAiCreditExhaustionGracefully() {
+        MessageDto message = createMessage("/ask When is the release?");
+
+        when(groupService.resolveGroup(any())).thenReturn(mockGroup);
+        when(userService.resolveUser(any())).thenReturn(mockUser);
+
+        SearchHit hit = new SearchHit(
+                2L, 202L, databaseGroupId, databaseUserId, "bob", "Bob",
+                "Release is next Friday.", Instant.now(), 0.1
+        );
+        when(semanticSearchService.search(anyLong(), anyString(), anyInt()))
+                .thenReturn(List.of(hit));
+
+        when(aiService.generateGroundedAnswer(anyString(), anyString()))
+                .thenThrow(new com.recallbot.ai.exception.AIProviderCreditExhaustedException("OpenRouter credits insufficient"));
+
+        handler.handle(message);
+
+        verify(telegramClient).sendMessage(
+                eq(telegramChatId),
+                eq("I am temporarily unable to generate an AI answer due to an AI provider credit limit. Please contact the group admin."),
+                isNull(),
+                eq(telegramMessageId)
+        );
+
+        var events = adminActivityBuffer.getRecentEvents(10, "COMMAND_FAILED", mockGroup.getId());
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).status()).isEqualTo("CREDIT_EXHAUSTED");
+    }
+
+    @Test
+    @DisplayName("Handles AI provider rate limit with clear retry advice and admin activity recording")
+    void handlesAiRateLimitGracefully() {
+        MessageDto message = createMessage("/ask When is the release?");
+
+        when(groupService.resolveGroup(any())).thenReturn(mockGroup);
+        when(userService.resolveUser(any())).thenReturn(mockUser);
+
+        SearchHit hit = new SearchHit(
+                2L, 202L, databaseGroupId, databaseUserId, "bob", "Bob",
+                "Release is next Friday.", Instant.now(), 0.1
+        );
+        when(semanticSearchService.search(anyLong(), anyString(), anyInt()))
+                .thenReturn(List.of(hit));
+
+        when(aiService.generateGroundedAnswer(anyString(), anyString()))
+                .thenThrow(new com.recallbot.ai.exception.AIProviderRateLimitException("Rate limit 429"));
+
+        handler.handle(message);
+
+        verify(telegramClient).sendMessage(
+                eq(telegramChatId),
+                eq("The AI service is temporarily busy (rate-limited). Please wait a moment and try your question again."),
+                isNull(),
+                eq(telegramMessageId)
+        );
+
+        var events = adminActivityBuffer.getRecentEvents(10, "COMMAND_FAILED", mockGroup.getId());
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).status()).isEqualTo("RATE_LIMITED");
+    }
+
+    @Test
+    @DisplayName("Handles AI provider unavailability with clear advice and admin activity recording")
+    void handlesAiUnavailableGracefully() {
+        MessageDto message = createMessage("/ask When is the release?");
+
+        when(groupService.resolveGroup(any())).thenReturn(mockGroup);
+        when(userService.resolveUser(any())).thenReturn(mockUser);
+
+        SearchHit hit = new SearchHit(
+                2L, 202L, databaseGroupId, databaseUserId, "bob", "Bob",
+                "Release is next Friday.", Instant.now(), 0.1
+        );
+        when(semanticSearchService.search(anyLong(), anyString(), anyInt()))
+                .thenReturn(List.of(hit));
+
+        when(aiService.generateGroundedAnswer(anyString(), anyString()))
+                .thenThrow(new com.recallbot.ai.exception.AIProviderUnavailableException("OpenRouter 500"));
+
+        handler.handle(message);
+
+        verify(telegramClient).sendMessage(
+                eq(telegramChatId),
+                eq("The AI service is temporarily unavailable. Please try again shortly."),
+                isNull(),
+                eq(telegramMessageId)
+        );
+
+        var events = adminActivityBuffer.getRecentEvents(10, "COMMAND_FAILED", mockGroup.getId());
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).status()).isEqualTo("UNAVAILABLE");
+    }
+
+    @Test
+    @DisplayName("Records successful command execution with stage timings in admin activity buffer")
+    void recordsActivityOnSuccess() {
+        MessageDto message = createMessage("/ask When is the release?");
+
+        when(groupService.resolveGroup(any())).thenReturn(mockGroup);
+        when(userService.resolveUser(any())).thenReturn(mockUser);
+
+        SearchHit hit = new SearchHit(
+                2L, 202L, databaseGroupId, databaseUserId, "bob", "Bob",
+                "Release is next Friday.", Instant.now(), 0.1
+        );
+        when(semanticSearchService.search(anyLong(), anyString(), anyInt()))
+                .thenReturn(List.of(hit));
+
+        when(aiService.generateGroundedAnswer(anyString(), anyString()))
+                .thenReturn("Release is next Friday [Msg #202].");
+
+        handler.handle(message);
+
+        var events = adminActivityBuffer.getRecentEvents(10, "COMMAND_EXECUTED", mockGroup.getId());
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).status()).isEqualTo("SUCCESS");
+        assertThat(events.get(0).details()).contains("Processed /ask in");
+        assertThat(events.get(0).details()).contains("hits=1");
     }
 
     @Test

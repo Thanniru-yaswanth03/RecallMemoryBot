@@ -1,7 +1,12 @@
 package com.recallbot.telegram.command;
 
+import com.recallbot.admin.activity.AdminActivityBuffer;
+import com.recallbot.admin.activity.BotActivityEvent;
 import com.recallbot.ai.AIService;
 import com.recallbot.ai.citation.CitationValidator;
+import com.recallbot.ai.exception.AIProviderCreditExhaustedException;
+import com.recallbot.ai.exception.AIProviderRateLimitException;
+import com.recallbot.ai.exception.AIProviderUnavailableException;
 import com.recallbot.ai.prompt.PromptBuilder;
 import com.recallbot.config.properties.RecallProperties;
 import com.recallbot.core.group.GroupEntity;
@@ -45,6 +50,9 @@ public class AskCommandHandler implements CommandHandler {
     private final RecallProperties properties;
     private final RateLimiter rateLimiter;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AdminActivityBuffer adminActivityBuffer;
+
     public AskCommandHandler(
             GroupService groupService,
             UserService userService,
@@ -67,6 +75,10 @@ public class AskCommandHandler implements CommandHandler {
         this.telegramClient = telegramClient;
         this.properties = properties;
         this.rateLimiter = rateLimiter;
+    }
+
+    public void setAdminActivityBuffer(AdminActivityBuffer adminActivityBuffer) {
+        this.adminActivityBuffer = adminActivityBuffer;
     }
 
     @Override
@@ -192,6 +204,20 @@ public class AskCommandHandler implements CommandHandler {
                 long totalDurationMs = System.currentTimeMillis() - totalStart;
                 log.info("[{}] Successfully processed /{} for group_id={} in {}ms (auth={}ms, search={}ms, ai={}ms, telegram={}ms, hits={})",
                         reqId, cmd, group.getId(), totalDurationMs, authMs, searchMs, aiMs, tgMs, hits.size());
+
+                if (adminActivityBuffer != null) {
+                    adminActivityBuffer.recordEvent(new BotActivityEvent(
+                            reqId,
+                            java.time.Instant.now(),
+                            "COMMAND_EXECUTED",
+                            group.getId(),
+                            group.getTitle(),
+                            "SUCCESS",
+                            totalDurationMs,
+                            String.format("Processed /%s in %dms (auth=%dms, search=%dms, ai=%dms, tg=%dms, hits=%d)",
+                                    cmd, totalDurationMs, authMs, searchMs, aiMs, tgMs, hits.size())
+                    ));
+                }
             }
 
         } catch (Exception e) {
@@ -199,9 +225,33 @@ public class AskCommandHandler implements CommandHandler {
             log.error("[{}] Failed to process /{} command for group chat_id={} after {}ms: {}",
                     reqId, cmd, chatId, failedDurationMs, e.getMessage(), e);
 
-            String userMessage = "I encountered an error retrieving memories or generating an answer. Please try again later.";
-            if (e.getMessage() != null && e.getMessage().contains("credits insufficient")) {
-                userMessage = "I am temporarily unable to generate an AI answer due to an AI provider credit limit. Please try again shortly or contact the group admin.";
+            String userMessage;
+            String eventStatus = "FAILED";
+
+            if (e instanceof AIProviderCreditExhaustedException || hasCause(e, AIProviderCreditExhaustedException.class)) {
+                userMessage = "I am temporarily unable to generate an AI answer due to an AI provider credit limit. Please contact the group admin.";
+                eventStatus = "CREDIT_EXHAUSTED";
+            } else if (e instanceof AIProviderRateLimitException || hasCause(e, AIProviderRateLimitException.class)) {
+                userMessage = "The AI service is temporarily busy (rate-limited). Please wait a moment and try your question again.";
+                eventStatus = "RATE_LIMITED";
+            } else if (e instanceof AIProviderUnavailableException || hasCause(e, AIProviderUnavailableException.class)) {
+                userMessage = "The AI service is temporarily unavailable. Please try again shortly.";
+                eventStatus = "UNAVAILABLE";
+            } else {
+                userMessage = "I encountered an error retrieving memories or generating an answer. Please try again later.";
+            }
+
+            if (adminActivityBuffer != null) {
+                adminActivityBuffer.recordEvent(new BotActivityEvent(
+                        reqId,
+                        java.time.Instant.now(),
+                        "COMMAND_FAILED",
+                        group != null ? group.getId() : null,
+                        group != null ? group.getTitle() : null,
+                        eventStatus,
+                        failedDurationMs,
+                        String.format("Failed /%s after %dms: %s", cmd, failedDurationMs, e.getMessage())
+                ));
             }
 
             telegramClient.sendMessage(
@@ -211,6 +261,16 @@ public class AskCommandHandler implements CommandHandler {
                     replyToMessageId
             );
         }
+    }
+
+    private boolean hasCause(Throwable t, Class<? extends Throwable> expected) {
+        while (t != null) {
+            if (expected.isInstance(t)) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 
     private String extractQuestion(String content) {
