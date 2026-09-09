@@ -25,7 +25,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class OpenRouterChatClientTest {
 
     private static final String API_KEY = "test-sk-chat-key";
-    private static final String MODEL = "anthropic/claude-3-haiku";
+    private static final String MODEL = "nex-agi/nex-n2.5-pro:free";
 
     private OpenRouterChatClient client;
     private MockRestServiceServer mockServer;

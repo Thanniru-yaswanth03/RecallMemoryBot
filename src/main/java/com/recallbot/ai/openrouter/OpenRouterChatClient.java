@@ -88,9 +88,11 @@ public class OpenRouterChatClient implements AIService {
 
     @Override
     public String getModelName() {
-        return properties.ai() != null && properties.ai().chatModel() != null
-                ? properties.ai().chatModel()
-                : "nex-agi/nex-n2.5-pro:free";
+        String model = properties.ai() != null ? properties.ai().chatModel() : null;
+        if (model == null || model.isBlank() || "anthropic/claude-3-haiku".equals(model)) {
+            return "nex-agi/nex-n2.5-pro:free";
+        }
+        return model;
     }
 
     private static final java.util.regex.Pattern AFFORDABLE_TOKENS_PATTERN =

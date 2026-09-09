@@ -22,19 +22,23 @@ public class AdminSystemService {
     private final MessageEmbeddingRepository messageEmbeddingRepository;
     private final TelegramUpdateRepository telegramUpdateRepository;
     private final RecallProperties properties;
+    private final com.recallbot.ai.AIService aiService;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public AdminSystemService(
             DataSource dataSource,
             MessageRepository messageRepository,
             MessageEmbeddingRepository messageEmbeddingRepository,
             TelegramUpdateRepository telegramUpdateRepository,
-            RecallProperties properties
+            RecallProperties properties,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) com.recallbot.ai.AIService aiService
     ) {
         this.dataSource = dataSource;
         this.messageRepository = messageRepository;
         this.messageEmbeddingRepository = messageEmbeddingRepository;
         this.telegramUpdateRepository = telegramUpdateRepository;
         this.properties = properties;
+        this.aiService = aiService;
     }
 
     @Transactional(readOnly = true)
@@ -84,7 +88,7 @@ public class AdminSystemService {
         double coveragePercent = totalMessages > 0 ? ((double) totalEmbedded / totalMessages) * 100.0 : 100.0;
 
         // AI Provider info
-        String chatModel = (properties != null && properties.ai() != null) ? properties.ai().chatModel() : "unknown";
+        String chatModel = aiService != null ? aiService.getModelName() : ((properties != null && properties.ai() != null) ? properties.ai().chatModel() : "unknown");
         String embeddingModel = (properties != null && properties.ai() != null) ? properties.ai().embeddingModel() : "unknown";
 
         // Telegram update stats
