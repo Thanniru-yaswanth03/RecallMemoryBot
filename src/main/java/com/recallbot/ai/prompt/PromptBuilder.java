@@ -56,7 +56,7 @@ public class PromptBuilder {
         if (hits != null && !hits.isEmpty()) {
             // Sort chronologically for natural conversational flow in prompt context
             List<SearchHit> chronologicalHits = hits.stream()
-                    .sorted(Comparator.comparing(SearchHit::sentAt))
+                    .sorted(Comparator.comparing(SearchHit::sentAt, Comparator.nullsLast(Comparator.naturalOrder())))
                     .toList();
 
             for (SearchHit hit : chronologicalHits) {

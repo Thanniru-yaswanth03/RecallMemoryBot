@@ -97,6 +97,7 @@ public class OpenRouterEmbeddingClient implements EmbeddingService {
 
         long backoff = initialBackoffMs;
         Exception lastException = null;
+        long startTime = System.currentTimeMillis();
 
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
@@ -110,7 +111,11 @@ public class OpenRouterEmbeddingClient implements EmbeddingService {
                         .retrieve()
                         .body(EmbeddingResponse.class);
 
-                return validateAndExtractEmbeddings(response);
+                List<float[]> results = validateAndExtractEmbeddings(response);
+                long durationMs = System.currentTimeMillis() - startTime;
+                log.debug("OpenRouter embeddings generated in {}ms for model={} (count={}, attempt={})",
+                        durationMs, request.model(), results.size(), attempt);
+                return results;
             } catch (HttpClientErrorException.TooManyRequests e) {
                 lastException = e;
                 log.warn("OpenRouter HTTP 429 Rate Limit encountered (attempt={}/{}). Backing off for {}ms",

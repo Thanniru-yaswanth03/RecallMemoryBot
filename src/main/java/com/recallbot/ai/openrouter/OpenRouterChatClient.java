@@ -90,14 +90,20 @@ public class OpenRouterChatClient implements AIService {
                 : "anthropic/claude-3-haiku";
     }
 
-    private String executeWithRetry(ChatCompletionRequest request, String apiKey) {
+    private static final java.util.regex.Pattern AFFORDABLE_TOKENS_PATTERN =
+            java.util.regex.Pattern.compile("can only afford\\s+(\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final int MIN_AFFORDABLE_TOKENS_FLOOR = 150;
+
+    private String executeWithRetry(ChatCompletionRequest initialRequest, String apiKey) {
         long backoff = initialBackoffMs;
         Exception lastException = null;
+        ChatCompletionRequest request = initialRequest;
+        long startTime = System.currentTimeMillis();
 
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                log.debug("Calling OpenRouter chat completions endpoint for model={} (attempt={}/{})",
-                        request.model(), attempt, MAX_ATTEMPTS);
+                log.debug("Calling OpenRouter chat completions endpoint for model={}, maxTokens={} (attempt={}/{})",
+                        request.model(), request.maxTokens(), attempt, MAX_ATTEMPTS);
 
                 ChatCompletionResponse response = restClient.post()
                         .uri("/chat/completions")
@@ -115,15 +121,59 @@ public class OpenRouterChatClient implements AIService {
                     throw new IllegalStateException("OpenRouter returned empty message content");
                 }
 
+                long totalDurationMs = System.currentTimeMillis() - startTime;
+                log.info("OpenRouter chat completion succeeded for model={} in {}ms (attempt={})",
+                        request.model(), totalDurationMs, attempt);
+
                 return content.trim();
-            } catch (HttpClientErrorException.TooManyRequests e) {
+            } catch (HttpClientErrorException e) {
                 lastException = e;
-                log.warn("OpenRouter HTTP 429 Rate Limit encountered (attempt={}/{}). Backing off for {}ms",
-                        attempt, MAX_ATTEMPTS, backoff);
-                if (attempt < MAX_ATTEMPTS) {
-                    sleep(backoff);
-                    backoff *= 2;
+                if (e.getStatusCode().value() == 402) {
+                    String responseBody = e.getResponseBodyAsString();
+                    int currentMax = request.maxTokens() != null ? request.maxTokens() : 400;
+                    Integer affordableTokens = extractAffordableTokens(responseBody);
+
+                    int adjustedTokens;
+                    if (affordableTokens != null) {
+                        if (affordableTokens < MIN_AFFORDABLE_TOKENS_FLOOR) {
+                            log.error("OpenRouter credit balance is exhausted or insufficient for model '{}' (can only afford {} tokens, below floor of {}): {}",
+                                    request.model(), affordableTokens, MIN_AFFORDABLE_TOKENS_FLOOR, responseBody);
+                            throw new IllegalStateException("OpenRouter credits insufficient: can only afford " + affordableTokens + " tokens", e);
+                        }
+                        adjustedTokens = Math.max(MIN_AFFORDABLE_TOKENS_FLOOR, affordableTokens - 20);
+                    } else {
+                        adjustedTokens = Math.max(MIN_AFFORDABLE_TOKENS_FLOOR, (int) (currentMax * 0.5));
+                    }
+
+                    if (adjustedTokens < currentMax && attempt < MAX_ATTEMPTS) {
+                        log.warn("OpenRouter HTTP 402 Payment Required: token reservation limit reached (requested {} tokens). Adaptively reducing maxTokens to {} and retrying immediately...",
+                                currentMax, adjustedTokens);
+                        request = new ChatCompletionRequest(
+                                request.model(),
+                                request.messages(),
+                                adjustedTokens,
+                                request.temperature()
+                        );
+                        continue;
+                    }
+
+                    log.error("OpenRouter credit balance is exhausted or insufficient for model '{}' (HTTP 402). Please add credits at https://openrouter.ai/settings/credits: {}",
+                            request.model(), responseBody);
+                    throw new IllegalStateException("OpenRouter credits insufficient for model " + request.model() + ". Add credits or lower max tokens.", e);
                 }
+
+                if (e.getStatusCode().value() == 429) {
+                    log.warn("OpenRouter HTTP 429 Rate Limit encountered (attempt={}/{}). Backing off for {}ms",
+                            attempt, MAX_ATTEMPTS, backoff);
+                    if (attempt < MAX_ATTEMPTS) {
+                        sleep(backoff);
+                        backoff *= 2;
+                        continue;
+                    }
+                }
+
+                log.error("OpenRouter client error HTTP {}: {}", e.getStatusCode(), e.getStatusText());
+                throw e;
             } catch (HttpServerErrorException e) {
                 lastException = e;
                 log.warn("OpenRouter server error HTTP {} (attempt={}/{}). Backing off for {}ms",
@@ -140,9 +190,6 @@ public class OpenRouterChatClient implements AIService {
                     sleep(backoff);
                     backoff *= 2;
                 }
-            } catch (HttpClientErrorException e) {
-                log.error("OpenRouter client error HTTP {}: {}", e.getStatusCode(), e.getStatusText());
-                throw e;
             } catch (Exception e) {
                 lastException = e;
                 log.error("Unexpected error calling OpenRouter chat: {}", e.getMessage());
@@ -151,6 +198,20 @@ public class OpenRouterChatClient implements AIService {
         }
 
         throw new IllegalStateException("OpenRouter chat completion failed after " + MAX_ATTEMPTS + " attempts", lastException);
+    }
+
+    private Integer extractAffordableTokens(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return null;
+        }
+        var matcher = AFFORDABLE_TOKENS_PATTERN.matcher(responseBody);
+        if (matcher.find()) {
+            try {
+                return Integer.parseInt(matcher.group(1));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
     }
 
     private void sleep(long millis) {

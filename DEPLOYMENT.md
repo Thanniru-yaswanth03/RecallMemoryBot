@@ -55,6 +55,7 @@ Production secrets are injected through environment variables. **Never commit `.
 | `RECALL_AI_CHAT_MODEL` | Grounded answer chat model | `anthropic/claude-3-haiku` |
 | `RECALL_AI_EMBEDDING_MODEL` | Vector embedding model | `openai/text-embedding-3-small` |
 | `RECALL_AI_EMBEDDING_DIMENSION`| Vector embedding dimension | `1536` |
+| `RECALL_AI_MAX_OUTPUT_TOKENS` | Max tokens for AI completion (400 preserves free tier credits) | `400` |
 | `RECALL_RATE_LIMIT_USER_PER_MIN` | Per-user rate limit (sliding window) | `3` |
 | `RECALL_RATE_LIMIT_GROUP_PER_5MIN` | Per-group rate limit (sliding window) | `10` |
 | `RECALL_ADMIN_ENABLED` | Enable private admin dashboard | `true` |
@@ -122,7 +123,10 @@ For personal demonstration, interview showcases, or small group usage at **zero 
 
 ### 3.3 Free-Tier Platform Limitations & Characteristics
 - **Render Inactivity Spin-Down**: Free web services automatically spin down after 15 minutes of inactivity. When a new Telegram message or HTTP request arrives, the cold start takes ~45–60 seconds. Telegram automatically retries webhooks until an HTTP 200 is returned.
+- **Eager Startup Pre-Warming**: `ApplicationWarmupService` executes immediately upon `ApplicationReadyEvent`. It runs a pgvector distance query to wake up Neon compute and load `vector.so` into PostgreSQL memory, pre-warms HTTP/2 TLS connections to OpenRouter and Telegram API, and initializes Jackson serializers before user traffic is served.
+- **Pooled HTTP/2 Client**: `AppConfig` initializes a pooled `JdkClientHttpRequestFactory` with persistent keep-alive connections, 10s connect timeout, and 30s read timeout to prevent thread hangs or repetitive TLS handshakes.
 - **Neon Compute Autosuspend**: Neon suspends compute after inactivity to conserve compute hours, waking up within ~500ms when an incoming JDBC query is made.
+- **OpenRouter Credit Reservation & Token Budgeting**: OpenRouter requires upfront credit reservation based on `max_tokens`. `RECALL_AI_MAX_OUTPUT_TOKENS` defaults to 400 (sufficient for concise Telegram answers), and `OpenRouterChatClient` automatically adapts `max_tokens` downwards on HTTP 402 if credit limits are approached.
 - **Database Persistence**: Neon persistent storage retains all group messages, memories, and 1536-dim vector embeddings permanently across Render container spin-downs, restarts, and redeployments.
 
 ---

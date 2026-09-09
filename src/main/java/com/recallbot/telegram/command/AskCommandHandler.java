@@ -110,12 +110,19 @@ public class AskCommandHandler implements CommandHandler {
             return;
         }
 
+        String cmd = (content != null && content.toLowerCase().startsWith("/recall")) ? "recall" : "ask";
+        String reqId = "req-" + (replyToMessageId != null ? replyToMessageId : System.currentTimeMillis());
+        long totalStart = System.currentTimeMillis();
+        log.info("[{}] Received /{} command in chat_id={}", reqId, cmd, chatId);
+
         // 3. Send typing indicator for user responsiveness
         telegramClient.sendChatAction(chatId, "typing");
 
+        GroupEntity group = null;
         try {
+            long stageStart = System.currentTimeMillis();
             // 4. Resolve group and user identities, ensuring membership
-            GroupEntity group = groupService.resolveGroup(chat);
+            group = groupService.resolveGroup(chat);
             Long databaseUserId = null;
             if (message.from() != null) {
                 UserEntity user = userService.resolveUser(message.from());
@@ -127,13 +134,13 @@ public class AskCommandHandler implements CommandHandler {
             if (databaseUserId != null) {
                 RateLimitResult rateCheck = rateLimiter.tryAcquire(group.getId(), databaseUserId);
                 if (!rateCheck.isAllowed()) {
-                    String cmd = (content != null && content.toLowerCase().startsWith("/recall")) ? "recall" : "ask";
-                    log.info("Rate limit exceeded for /{} in group_id={}, user_id={}, reason={}, retryAfterSec={}",
-                            cmd, group.getId(), databaseUserId, rateCheck.reason(), rateCheck.retryAfterSeconds());
+                    log.info("[{}] Rate limit exceeded for /{} in group_id={}, user_id={}, reason={}, retryAfterSec={}",
+                            reqId, cmd, group.getId(), databaseUserId, rateCheck.reason(), rateCheck.retryAfterSeconds());
                     telegramClient.sendMessage(chatId, rateCheck.errorMessage(), null, replyToMessageId);
                     return;
                 }
             }
+            long authMs = System.currentTimeMillis() - stageStart;
 
             try (TenantContext.TenantScope ignored = TenantContext.with(group.getId())) {
                 // 5. Execute semantic search with group isolation
@@ -141,11 +148,14 @@ public class AskCommandHandler implements CommandHandler {
                         ? properties.search().maxCandidates()
                         : 10;
 
+                long searchStart = System.currentTimeMillis();
                 List<SearchHit> hits = semanticSearchService.search(group.getId(), question, topK);
+                long searchMs = System.currentTimeMillis() - searchStart;
 
                 // 6. Handle empty/no-result situation deterministically
                 if (hits == null || hits.isEmpty()) {
-                    log.debug("No semantic memory hits found for group_id={}, query_len={}", group.getId(), question.length());
+                    log.info("[{}] No semantic memory hits found for group_id={}, query_len={}, search={}ms",
+                            reqId, group.getId(), question.length(), searchMs);
                     telegramClient.sendMessage(
                             chatId,
                             "I don't have enough conversation history in this group to answer that question.",
@@ -155,12 +165,16 @@ public class AskCommandHandler implements CommandHandler {
                     return;
                 }
 
+                log.debug("[{}] Retrieved {} semantic hits in {}ms for group_id={}", reqId, hits.size(), searchMs, group.getId());
+
                 // 7. Assemble grounded prompt with injection defense
                 String systemPrompt = promptBuilder.buildSystemPrompt();
                 String userPrompt = promptBuilder.buildUserPrompt(question, hits);
 
                 // 8. Generate answer via AI Service
+                long aiStart = System.currentTimeMillis();
                 String rawAnswer = aiService.generateGroundedAnswer(systemPrompt, userPrompt);
+                long aiMs = System.currentTimeMillis() - aiStart;
 
                 // 9. Sanitize and validate citations
                 String sanitizedAnswer = citationValidator.validateAndSanitize(rawAnswer, hits);
@@ -171,14 +185,28 @@ public class AskCommandHandler implements CommandHandler {
                 }
 
                 // 11. Dispatch answer back to Telegram
+                long tgStart = System.currentTimeMillis();
                 telegramClient.sendMessage(chatId, sanitizedAnswer, null, replyToMessageId);
+                long tgMs = System.currentTimeMillis() - tgStart;
+
+                long totalDurationMs = System.currentTimeMillis() - totalStart;
+                log.info("[{}] Successfully processed /{} for group_id={} in {}ms (auth={}ms, search={}ms, ai={}ms, telegram={}ms, hits={})",
+                        reqId, cmd, group.getId(), totalDurationMs, authMs, searchMs, aiMs, tgMs, hits.size());
             }
 
         } catch (Exception e) {
-            log.error("Failed to process /ask command for group chat_id={}: {}", chatId, e.getMessage(), e);
+            long failedDurationMs = System.currentTimeMillis() - totalStart;
+            log.error("[{}] Failed to process /{} command for group chat_id={} after {}ms: {}",
+                    reqId, cmd, chatId, failedDurationMs, e.getMessage(), e);
+
+            String userMessage = "I encountered an error retrieving memories or generating an answer. Please try again later.";
+            if (e.getMessage() != null && e.getMessage().contains("credits insufficient")) {
+                userMessage = "I am temporarily unable to generate an AI answer due to an AI provider credit limit. Please try again shortly or contact the group admin.";
+            }
+
             telegramClient.sendMessage(
                     chatId,
-                    "I encountered an error retrieving memories or generating an answer. Please try again later.",
+                    userMessage,
                     null,
                     replyToMessageId
             );

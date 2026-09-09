@@ -139,6 +139,76 @@ class OpenRouterChatClientTest {
     }
 
     @Test
+    @DisplayName("Adaptively reduces max_tokens and succeeds when OpenRouter returns HTTP 402 Payment Required")
+    void adaptivelyRetriesOnHttp402() {
+        String error402 = """
+                {
+                  "error": {
+                    "message": "This request requires more credits, or fewer max_tokens. You requested up to 800 tokens, but can only afford 705. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account",
+                    "code": 402
+                  }
+                }
+                """;
+
+        String successResponse = """
+                {
+                  "id": "gen-12347",
+                  "model": "anthropic/claude-3-haiku",
+                  "choices": [
+                    {
+                      "index": 0,
+                      "message": {
+                        "role": "assistant",
+                        "content": "Adaptive answer after token reduction."
+                      },
+                      "finish_reason": "stop"
+                    }
+                  ]
+                }
+                """;
+
+        // First attempt with 800 tokens fails with 402
+        mockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.max_tokens").value(800))
+                .andRespond(withStatus(HttpStatus.PAYMENT_REQUIRED).body(error402).contentType(MediaType.APPLICATION_JSON));
+
+        // Second attempt with reduced tokens (705 - 20 = 685) succeeds
+        mockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.max_tokens").value(685))
+                .andRespond(withSuccess(successResponse, MediaType.APPLICATION_JSON));
+
+        String answer = client.generateGroundedAnswer("System", "User");
+
+        assertThat(answer).isEqualTo("Adaptive answer after token reduction.");
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Fails with clear error when OpenRouter credits are completely exhausted (below minimum floor)")
+    void failsOnHttp402WhenCreditsCompletelyExhausted() {
+        String error402Exhausted = """
+                {
+                  "error": {
+                    "message": "This request requires more credits, or fewer max_tokens. You requested up to 800 tokens, but can only afford 50.",
+                    "code": 402
+                  }
+                }
+                """;
+
+        mockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.PAYMENT_REQUIRED).body(error402Exhausted).contentType(MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.generateGroundedAnswer("System", "User"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("OpenRouter credits insufficient");
+
+        mockServer.verify();
+    }
+
+    @Test
     @DisplayName("Throws exception on null or blank prompts")
     void rejectsNullOrBlankPrompts() {
         assertThatThrownBy(() -> client.generateGroundedAnswer(null, "User"))
