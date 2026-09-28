@@ -275,7 +275,7 @@ class OpenRouterChatClientTest {
     }
 
     @Test
-    @DisplayName("Falls back to openrouter/free when configured model returns HTTP 404")
+    @DisplayName("Falls back to DEFAULT_FREE_MODEL when configured model returns HTTP 404")
     void fallsBackToOpenRouterFreeOnHttp404() {
         RecallProperties customProps = new RecallProperties(
                 new RecallProperties.Telegram("webhook", "recall_bot", "token", "secret", null),
@@ -291,7 +291,7 @@ class OpenRouterChatClientTest {
         String successResponse = """
                 {
                   "id": "gen-fallback",
-                  "model": "openrouter/free",
+                  "model": "inclusionai/ling-3.0-flash-sante:free",
                   "choices": [
                     {
                       "index": 0,
@@ -312,11 +312,76 @@ class OpenRouterChatClientTest {
 
         customMockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(jsonPath("$.model").value("openrouter/free"))
+                .andExpect(jsonPath("$.model").value(OpenRouterChatClient.DEFAULT_FREE_MODEL))
                 .andRespond(withSuccess(successResponse, MediaType.APPLICATION_JSON));
 
         String answer = customClient.generateGroundedAnswer("System instructions", "User question");
         assertThat(answer).isEqualTo("Recovered via fallback.");
+        customMockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Falls back to FALLBACK_FREE_MODEL when primary model returns null or blank content (e.g. reasoning token exhaustion)")
+    void fallsBackOnEmptyContent() {
+        RecallProperties customProps = new RecallProperties(
+                new RecallProperties.Telegram("webhook", "recall_bot", "token", "secret", null),
+                new RecallProperties.Ai(API_KEY, OpenRouterChatClient.DEFAULT_FREE_MODEL, "openai/text-embedding-3-small", 1536, 30, 800, 0.2),
+                new RecallProperties.Search(15, 60, 2500),
+                new RecallProperties.RateLimit(3, 10)
+        );
+        RestClient.Builder customBuilder = RestClient.builder();
+        MockRestServiceServer customMockServer = MockRestServiceServer.bindTo(customBuilder).build();
+        OpenRouterChatClient customClient = new OpenRouterChatClient(customProps, customBuilder, "https://openrouter.ai/api/v1");
+        customClient.setInitialBackoffMs(5);
+
+        String emptyResponse = """
+                {
+                  "id": "gen-empty",
+                  "model": "inclusionai/ling-3.0-flash-sante:free",
+                  "choices": [
+                    {
+                      "index": 0,
+                      "message": {
+                        "role": "assistant",
+                        "content": null
+                      },
+                      "finish_reason": "length"
+                    }
+                  ]
+                }
+                """;
+
+        String successResponse = """
+                {
+                  "id": "gen-fallback-success",
+                  "model": "openrouter/free",
+                  "choices": [
+                    {
+                      "index": 0,
+                      "message": {
+                        "role": "assistant",
+                        "content": "Grounded answer from fallback model."
+                      },
+                      "finish_reason": "stop"
+                    }
+                  ]
+                }
+                """;
+
+        // First attempt with primary model returns null content
+        customMockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.model").value(OpenRouterChatClient.DEFAULT_FREE_MODEL))
+                .andRespond(withSuccess(emptyResponse, MediaType.APPLICATION_JSON));
+
+        // Second attempt with FALLBACK_FREE_MODEL succeeds
+        customMockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.model").value(OpenRouterChatClient.FALLBACK_FREE_MODEL))
+                .andRespond(withSuccess(successResponse, MediaType.APPLICATION_JSON));
+
+        String answer = customClient.generateGroundedAnswer("System instructions", "User question");
+        assertThat(answer).isEqualTo("Grounded answer from fallback model.");
         customMockServer.verify();
     }
 }

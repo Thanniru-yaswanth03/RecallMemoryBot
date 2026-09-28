@@ -28,6 +28,19 @@ class PromptBuilderTest {
     }
 
     @Test
+    @DisplayName("System prompt contains explicit multilingual rules for Hinglish, Hindi, Telugu, and Romanized scripts")
+    void systemPromptContainsMultilingualRules() {
+        String systemPrompt = promptBuilder.buildSystemPrompt();
+
+        assertThat(systemPrompt).contains("LANGUAGE AND MULTILINGUAL RULES");
+        assertThat(systemPrompt).contains("Hinglish");
+        assertThat(systemPrompt).contains("Hindi (Devanagari script)");
+        assertThat(systemPrompt).contains("Telugu (తెలుగు script)");
+        assertThat(systemPrompt).contains("Romanized Telugu");
+        assertThat(systemPrompt).contains("ALWAYS match the language, script, and tone");
+    }
+
+    @Test
     @DisplayName("User prompt correctly formats retrieved search hits chronologically within tags")
     void userPromptFormatsHits() {
         Instant t1 = Instant.parse("2026-09-03T10:00:00Z");

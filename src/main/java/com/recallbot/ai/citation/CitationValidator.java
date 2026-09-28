@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 @Component
 public class CitationValidator {
 
-    private static final Pattern CITATION_PATTERN = Pattern.compile("\\[(?:Msg|Message)\\s*#\\s*(\\d+)\\]", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CITATION_PATTERN = Pattern.compile("\\[(?:Msg|Message)\\s*(?:#|:)?\\s*(\\d+)\\]", Pattern.CASE_INSENSITIVE);
 
     /**
      * Sanitizes the answer text by stripping citations referencing message IDs that were not retrieved.
@@ -58,9 +58,9 @@ public class CitationValidator {
         }
         matcher.appendTail(sb);
 
-        // Clean up whitespace before punctuation and redundant double spaces left from stripped citations
+        // Clean up whitespace before punctuation (including Indic danda characters) and redundant double spaces left from stripped citations
         return sb.toString()
-                .replaceAll(" +([.,!?;:])", "$1")
+                .replaceAll(" +([.,!?;:|॥।])", "$1")
                 .replaceAll(" +", " ")
                 .trim();
     }

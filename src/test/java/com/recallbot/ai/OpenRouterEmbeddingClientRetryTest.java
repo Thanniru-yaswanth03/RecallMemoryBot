@@ -124,7 +124,7 @@ class OpenRouterEmbeddingClientRetryTest {
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
 
         assertThatThrownBy(() -> client.generateEmbedding("Test persistent 500"))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(com.recallbot.ai.exception.AIProviderUnavailableException.class)
                 .hasMessageContaining("failed after 3 attempts");
 
         mockServer.verify();

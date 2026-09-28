@@ -52,10 +52,10 @@ Production secrets are injected through environment variables. **Never commit `.
 | `TELEGRAM_WEBHOOK_SECRET` | Header secret for webhook verification | `a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6` |
 | `TELEGRAM_BOT_USERNAME` | Telegram bot username (without `@`) | `recall_memory_bot` |
 | `OPENROUTER_API_KEY` | OpenRouter API authentication key | `sk-or-v1-xxxxxxxxxxxx` |
-| `RECALL_AI_CHAT_MODEL` | Grounded answer chat model | `openrouter/free` |
+| `RECALL_AI_CHAT_MODEL` | Grounded answer chat model (multilingual support for Hinglish, Hindi, Telugu, etc.) | `inclusionai/ling-3.0-flash-sante:free` |
 | `RECALL_AI_EMBEDDING_MODEL` | Vector embedding model | `openai/text-embedding-3-small` |
 | `RECALL_AI_EMBEDDING_DIMENSION`| Vector embedding dimension | `1536` |
-| `RECALL_AI_MAX_OUTPUT_TOKENS` | Max tokens for AI completion (300 ensures concise group summaries) | `300` |
+| `RECALL_AI_MAX_OUTPUT_TOKENS` | Max tokens for AI completion (supports multilingual script & reasoning headroom) | `800` |
 | `RECALL_RATE_LIMIT_USER_PER_MIN` | Per-user rate limit (sliding window) | `3` |
 | `RECALL_RATE_LIMIT_GROUP_PER_5MIN` | Per-group rate limit (sliding window) | `10` |
 | `RECALL_ADMIN_ENABLED` | Enable private admin dashboard | `true` |

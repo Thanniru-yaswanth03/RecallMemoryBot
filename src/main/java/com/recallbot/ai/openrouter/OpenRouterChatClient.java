@@ -86,7 +86,8 @@ public class OpenRouterChatClient implements AIService {
         return executeWithRetry(request, apiKey);
     }
 
-    public static final String DEFAULT_FREE_MODEL = "openrouter/free";
+    public static final String DEFAULT_FREE_MODEL = "inclusionai/ling-3.0-flash-sante:free";
+    public static final String FALLBACK_FREE_MODEL = "openrouter/free";
 
     @Override
     public String getModelName() {
@@ -127,6 +128,17 @@ public class OpenRouterChatClient implements AIService {
 
                 String content = response.firstContent();
                 if (content == null || content.isBlank()) {
+                    if (!FALLBACK_FREE_MODEL.equals(request.model()) && attempt < MAX_ATTEMPTS) {
+                        log.warn("OpenRouter model '{}' returned empty message content (likely reasoning token exhaustion). Falling back to '{}'...",
+                                request.model(), FALLBACK_FREE_MODEL);
+                        request = new ChatCompletionRequest(
+                                FALLBACK_FREE_MODEL,
+                                request.messages(),
+                                request.maxTokens(),
+                                request.temperature()
+                        );
+                        continue;
+                    }
                     throw new IllegalStateException("OpenRouter returned empty message content");
                 }
 
@@ -191,16 +203,19 @@ public class OpenRouterChatClient implements AIService {
                     throw new com.recallbot.ai.exception.AIProviderRateLimitException("OpenRouter rate limit exceeded after " + MAX_ATTEMPTS + " attempts", e);
                 }
 
-                if (e.getStatusCode().value() == 404 && !DEFAULT_FREE_MODEL.equals(request.model())) {
-                    log.warn("OpenRouter model '{}' returned HTTP 404 (endpoint not found / retired). Falling back to '{}'...",
-                            request.model(), DEFAULT_FREE_MODEL);
-                    request = new ChatCompletionRequest(
-                            DEFAULT_FREE_MODEL,
-                            request.messages(),
-                            request.maxTokens(),
-                            request.temperature()
-                    );
-                    continue;
+                if (e.getStatusCode().value() == 404) {
+                    String fallback = !DEFAULT_FREE_MODEL.equals(request.model()) ? DEFAULT_FREE_MODEL : FALLBACK_FREE_MODEL;
+                    if (!fallback.equals(request.model())) {
+                        log.warn("OpenRouter model '{}' returned HTTP 404 (endpoint not found / retired). Falling back to '{}'...",
+                                request.model(), fallback);
+                        request = new ChatCompletionRequest(
+                                fallback,
+                                request.messages(),
+                                request.maxTokens(),
+                                request.temperature()
+                        );
+                        continue;
+                    }
                 }
 
                 log.error("OpenRouter client error HTTP {}: {}", e.getStatusCode(), e.getStatusText());

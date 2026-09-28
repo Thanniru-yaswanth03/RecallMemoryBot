@@ -502,6 +502,98 @@ class AskCommandHandlerTest {
         );
     }
 
+    @Test
+    @DisplayName("Multilingual: Handles Hinglish question and verifies prompt contains multilingual grounding rules and user query")
+    void handlesHinglishQuestion() {
+        MessageDto message = createMessage("/ask bhai postgresql kab decide kiya tha?");
+
+        when(groupService.resolveGroup(any())).thenReturn(mockGroup);
+        when(userService.resolveUser(any())).thenReturn(mockUser);
+
+        SearchHit hit = new SearchHit(
+                1L, 101L, databaseGroupId, databaseUserId, "bob", "Bob",
+                "We chose PostgreSQL on Tuesday.", Instant.parse("2026-09-01T10:00:00Z"), 0.05
+        );
+        when(semanticSearchService.search(eq(databaseGroupId), eq("bhai postgresql kab decide kiya tha?"), eq(10)))
+                .thenReturn(List.of(hit));
+
+        when(aiService.generateGroundedAnswer(anyString(), anyString()))
+                .thenReturn("PostgreSQL Tuesday ko choose kiya gaya tha [Msg #101].");
+
+        handler.handle(message);
+
+        ArgumentCaptor<String> sysPromptCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> userPromptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(aiService).generateGroundedAnswer(sysPromptCaptor.capture(), userPromptCaptor.capture());
+
+        assertThat(sysPromptCaptor.getValue()).contains("LANGUAGE AND MULTILINGUAL RULES");
+        assertThat(sysPromptCaptor.getValue()).contains("Hinglish");
+        assertThat(userPromptCaptor.getValue()).contains("User Question: bhai postgresql kab decide kiya tha?");
+
+        verify(telegramClient).sendMessage(
+                eq(telegramChatId),
+                eq("PostgreSQL Tuesday ko choose kiya gaya tha [Msg #101]."),
+                isNull(),
+                eq(telegramMessageId)
+        );
+    }
+
+    @Test
+    @DisplayName("Multilingual: Handles Telugu script question seamlessly")
+    void handlesTeluguScriptQuestion() {
+        MessageDto message = createMessage("/ask మనం పోస్ట్‌గ్రేస్ ఎస్క్యూఎల్ ఎప్పుడు నిర్ణయించాము?");
+
+        when(groupService.resolveGroup(any())).thenReturn(mockGroup);
+        when(userService.resolveUser(any())).thenReturn(mockUser);
+
+        SearchHit hit = new SearchHit(
+                1L, 101L, databaseGroupId, databaseUserId, "bob", "Bob",
+                "We chose PostgreSQL on Tuesday.", Instant.parse("2026-09-01T10:00:00Z"), 0.05
+        );
+        when(semanticSearchService.search(eq(databaseGroupId), eq("మనం పోస్ట్‌గ్రేస్ ఎస్క్యూఎల్ ఎప్పుడు నిర్ణయించాము?"), eq(10)))
+                .thenReturn(List.of(hit));
+
+        when(aiService.generateGroundedAnswer(anyString(), anyString()))
+                .thenReturn("మనం మంగళవారం పోస్ట్‌గ్రేస్ ఎస్క్యూఎల్ ఎంచుకున్నాము [Msg #101].");
+
+        handler.handle(message);
+
+        verify(telegramClient).sendMessage(
+                eq(telegramChatId),
+                eq("మనం మంగళవారం పోస్ట్‌గ్రేస్ ఎస్క్యూఎల్ ఎంచుకున్నాము [Msg #101]."),
+                isNull(),
+                eq(telegramMessageId)
+        );
+    }
+
+    @Test
+    @DisplayName("Multilingual: Handles Romanized Telugu question seamlessly")
+    void handlesRomanizedTeluguQuestion() {
+        MessageDto message = createMessage("/ask manam postgresql eppudu decide chesam?");
+
+        when(groupService.resolveGroup(any())).thenReturn(mockGroup);
+        when(userService.resolveUser(any())).thenReturn(mockUser);
+
+        SearchHit hit = new SearchHit(
+                1L, 101L, databaseGroupId, databaseUserId, "bob", "Bob",
+                "We chose PostgreSQL on Tuesday.", Instant.parse("2026-09-01T10:00:00Z"), 0.05
+        );
+        when(semanticSearchService.search(eq(databaseGroupId), eq("manam postgresql eppudu decide chesam?"), eq(10)))
+                .thenReturn(List.of(hit));
+
+        when(aiService.generateGroundedAnswer(anyString(), anyString()))
+                .thenReturn("Manam Tuesday roju PostgreSQL decide chesam [Msg #101].");
+
+        handler.handle(message);
+
+        verify(telegramClient).sendMessage(
+                eq(telegramChatId),
+                eq("Manam Tuesday roju PostgreSQL decide chesam [Msg #101]."),
+                isNull(),
+                eq(telegramMessageId)
+        );
+    }
+
     private MessageDto createMessage(String text) {
         ChatDto chat = new ChatDto(telegramChatId, "supergroup", "Test Group", null);
         UserDto user = new UserDto(telegramUserId, false, "alice", "Alice", null);

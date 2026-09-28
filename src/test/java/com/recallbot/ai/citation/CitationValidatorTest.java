@@ -50,6 +50,28 @@ class CitationValidatorTest {
     }
 
     @Test
+    @DisplayName("Normalizes flexible citation variants like [Msg 412], [Msg: 412], and [Msg#412] in multilingual responses")
+    void normalizesFlexibleCitationVariants() {
+        SearchHit hit1 = new SearchHit(1L, 412L, 1L, 10L, "alice", "Alice", "Hello", Instant.now(), 0.1);
+        SearchHit hit2 = new SearchHit(2L, 413L, 1L, 20L, "bob", "Bob", "World", Instant.now(), 0.2);
+
+        // Hinglish response with [Msg: 412] and [Msg 413]
+        String hinglish = "Bhai PostgreSQL decide ho gaya [Msg: 412] aur Bob ne approve kiya [Msg 413].";
+        assertThat(validator.validateAndSanitize(hinglish, List.of(hit1, hit2)))
+                .isEqualTo("Bhai PostgreSQL decide ho gaya [Msg #412] aur Bob ne approve kiya [Msg #413].");
+
+        // Hindi response with danda punctuation and [Msg#412]
+        String hindi = "गुरुवार को निर्णय लिया गया था [Msg#412] ।";
+        assertThat(validator.validateAndSanitize(hindi, List.of(hit1)))
+                .isEqualTo("गुरुवार को निर्णय लिया गया था [Msg #412]।");
+
+        // Telugu Romanized response
+        String telugu = "Manam PostgreSQL select chesam [Message: 412].";
+        assertThat(validator.validateAndSanitize(telugu, List.of(hit1)))
+                .isEqualTo("Manam PostgreSQL select chesam [Msg #412].");
+    }
+
+    @Test
     @DisplayName("Handles null, empty, or un-cited answers gracefully")
     void handlesNullOrEmpty() {
         assertThat(validator.validateAndSanitize(null, Collections.emptyList())).isNull();
