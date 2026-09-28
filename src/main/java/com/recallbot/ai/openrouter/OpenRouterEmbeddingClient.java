@@ -2,6 +2,9 @@ package com.recallbot.ai.openrouter;
 
 import com.recallbot.ai.EmbeddingService;
 import com.recallbot.ai.openrouter.dto.EmbeddingRequest;
+import com.recallbot.ai.exception.AIProviderCreditExhaustedException;
+import com.recallbot.ai.exception.AIProviderRateLimitException;
+import com.recallbot.ai.exception.AIProviderUnavailableException;
 import com.recallbot.ai.openrouter.dto.EmbeddingResponse;
 import com.recallbot.config.properties.RecallProperties;
 import org.slf4j.Logger;
@@ -141,6 +144,15 @@ public class OpenRouterEmbeddingClient implements EmbeddingService {
                     backoff *= 2;
                 }
             } catch (HttpClientErrorException e) {
+                if (e.getStatusCode().value() == 402) {
+                    throw new AIProviderCreditExhaustedException("OpenRouter credits insufficient for embedding model " + request.model(), e);
+                }
+                if (e.getStatusCode().value() == 429) {
+                    throw new AIProviderRateLimitException("OpenRouter embedding rate limit exceeded after " + MAX_ATTEMPTS + " attempts", e);
+                }
+                if (e.getStatusCode().value() == 404) {
+                    throw new AIProviderUnavailableException("OpenRouter embedding model '" + request.model() + "' not found (HTTP 404)", e);
+                }
                 // 400 Bad Request, 401 Unauthorized, 403 Forbidden - do not retry
                 log.error("OpenRouter client error HTTP {}: {}", e.getStatusCode(), e.getStatusText());
                 throw e;
@@ -151,7 +163,11 @@ public class OpenRouterEmbeddingClient implements EmbeddingService {
             }
         }
 
-        throw new IllegalStateException("OpenRouter embedding request failed after " + MAX_ATTEMPTS + " attempts", lastException);
+        if (lastException instanceof HttpClientErrorException.TooManyRequests) {
+            throw new AIProviderRateLimitException("OpenRouter embedding rate limit exceeded after " + MAX_ATTEMPTS + " attempts", lastException);
+        }
+
+        throw new AIProviderUnavailableException("OpenRouter embedding request failed after " + MAX_ATTEMPTS + " attempts", lastException);
     }
 
     private List<float[]> validateAndExtractEmbeddings(EmbeddingResponse response) {

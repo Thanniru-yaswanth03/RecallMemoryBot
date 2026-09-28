@@ -52,7 +52,7 @@ Production secrets are injected through environment variables. **Never commit `.
 | `TELEGRAM_WEBHOOK_SECRET` | Header secret for webhook verification | `a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6` |
 | `TELEGRAM_BOT_USERNAME` | Telegram bot username (without `@`) | `recall_memory_bot` |
 | `OPENROUTER_API_KEY` | OpenRouter API authentication key | `sk-or-v1-xxxxxxxxxxxx` |
-| `RECALL_AI_CHAT_MODEL` | Grounded answer chat model | `nex-agi/nex-n2.5-pro:free` |
+| `RECALL_AI_CHAT_MODEL` | Grounded answer chat model | `openrouter/free` |
 | `RECALL_AI_EMBEDDING_MODEL` | Vector embedding model | `openai/text-embedding-3-small` |
 | `RECALL_AI_EMBEDDING_DIMENSION`| Vector embedding dimension | `1536` |
 | `RECALL_AI_MAX_OUTPUT_TOKENS` | Max tokens for AI completion (300 ensures concise group summaries) | `300` |

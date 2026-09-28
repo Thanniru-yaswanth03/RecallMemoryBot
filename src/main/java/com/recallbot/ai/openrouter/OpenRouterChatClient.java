@@ -86,11 +86,15 @@ public class OpenRouterChatClient implements AIService {
         return executeWithRetry(request, apiKey);
     }
 
+    public static final String DEFAULT_FREE_MODEL = "openrouter/free";
+
     @Override
     public String getModelName() {
         String model = properties.ai() != null ? properties.ai().chatModel() : null;
-        if (model == null || model.isBlank() || "anthropic/claude-3-haiku".equals(model)) {
-            return "nex-agi/nex-n2.5-pro:free";
+        if (model == null || model.isBlank()
+                || "anthropic/claude-3-haiku".equals(model)
+                || "nex-agi/nex-n2.5-pro:free".equals(model)) {
+            return DEFAULT_FREE_MODEL;
         }
         return model;
     }
@@ -187,7 +191,22 @@ public class OpenRouterChatClient implements AIService {
                     throw new com.recallbot.ai.exception.AIProviderRateLimitException("OpenRouter rate limit exceeded after " + MAX_ATTEMPTS + " attempts", e);
                 }
 
+                if (e.getStatusCode().value() == 404 && !DEFAULT_FREE_MODEL.equals(request.model())) {
+                    log.warn("OpenRouter model '{}' returned HTTP 404 (endpoint not found / retired). Falling back to '{}'...",
+                            request.model(), DEFAULT_FREE_MODEL);
+                    request = new ChatCompletionRequest(
+                            DEFAULT_FREE_MODEL,
+                            request.messages(),
+                            request.maxTokens(),
+                            request.temperature()
+                    );
+                    continue;
+                }
+
                 log.error("OpenRouter client error HTTP {}: {}", e.getStatusCode(), e.getStatusText());
+                if (e.getStatusCode().value() == 404) {
+                    throw new AIProviderUnavailableException("OpenRouter model '" + request.model() + "' is not available (HTTP 404)", e);
+                }
                 throw e;
             } catch (HttpServerErrorException e) {
                 lastException = e;

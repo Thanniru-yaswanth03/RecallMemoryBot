@@ -25,7 +25,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class OpenRouterChatClientTest {
 
     private static final String API_KEY = "test-sk-chat-key";
-    private static final String MODEL = "nex-agi/nex-n2.5-pro:free";
+    private static final String MODEL = "openrouter/free";
 
     private OpenRouterChatClient client;
     private MockRestServiceServer mockServer;
@@ -272,5 +272,51 @@ class OpenRouterChatClientTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> client.generateGroundedAnswer("   ", "User"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("Falls back to openrouter/free when configured model returns HTTP 404")
+    void fallsBackToOpenRouterFreeOnHttp404() {
+        RecallProperties customProps = new RecallProperties(
+                new RecallProperties.Telegram("webhook", "recall_bot", "token", "secret", null),
+                new RecallProperties.Ai(API_KEY, "custom/deprecated-model", "openai/text-embedding-3-small", 1536, 30, 800, 0.2),
+                new RecallProperties.Search(15, 60, 2500),
+                new RecallProperties.RateLimit(3, 10)
+        );
+        RestClient.Builder customBuilder = RestClient.builder();
+        MockRestServiceServer customMockServer = MockRestServiceServer.bindTo(customBuilder).build();
+        OpenRouterChatClient customClient = new OpenRouterChatClient(customProps, customBuilder, "https://openrouter.ai/api/v1");
+        customClient.setInitialBackoffMs(5);
+
+        String successResponse = """
+                {
+                  "id": "gen-fallback",
+                  "model": "openrouter/free",
+                  "choices": [
+                    {
+                      "index": 0,
+                      "message": {
+                        "role": "assistant",
+                        "content": "Recovered via fallback."
+                      },
+                      "finish_reason": "stop"
+                    }
+                  ]
+                }
+                """;
+
+        customMockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.model").value("custom/deprecated-model"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        customMockServer.expect(requestTo("https://openrouter.ai/api/v1/chat/completions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.model").value("openrouter/free"))
+                .andRespond(withSuccess(successResponse, MediaType.APPLICATION_JSON));
+
+        String answer = customClient.generateGroundedAnswer("System instructions", "User question");
+        assertThat(answer).isEqualTo("Recovered via fallback.");
+        customMockServer.verify();
     }
 }

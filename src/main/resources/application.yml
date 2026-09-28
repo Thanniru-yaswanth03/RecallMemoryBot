@@ -54,7 +54,7 @@ recall:
     webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:placeholder_secret}
   ai:
     openrouter-api-key: ${OPENROUTER_API_KEY:placeholder_api_key}
-    chat-model: ${RECALL_AI_CHAT_MODEL:nex-agi/nex-n2.5-pro:free}
+    chat-model: ${RECALL_AI_CHAT_MODEL:openrouter/free}
     embedding-model: ${RECALL_AI_EMBEDDING_MODEL:openai/text-embedding-3-small}
     embedding-dimension: ${RECALL_AI_EMBEDDING_DIMENSION:1536}
     timeout-seconds: 30
