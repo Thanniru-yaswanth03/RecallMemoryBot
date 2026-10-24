@@ -1,5 +1,6 @@
 package com.recallbot.security;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -67,7 +68,8 @@ public final class TenantContext {
      * @return the result of the computation
      */
     public static <T> T execute(Long groupId, Supplier<T> supplier) {
-        try (TenantScope ignored = with(groupId)) {
+        try (TenantScope scope = with(groupId)) {
+            Objects.requireNonNull(scope);
             return supplier.get();
         }
     }
@@ -79,7 +81,8 @@ public final class TenantContext {
      * @param runnable the action to execute
      */
     public static void execute(Long groupId, Runnable runnable) {
-        try (TenantScope ignored = with(groupId)) {
+        try (TenantScope scope = with(groupId)) {
+            Objects.requireNonNull(scope);
             runnable.run();
         }
     }

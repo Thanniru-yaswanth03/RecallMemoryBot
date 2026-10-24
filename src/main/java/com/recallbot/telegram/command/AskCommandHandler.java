@@ -24,6 +24,7 @@ import com.recallbot.telegram.TelegramClient;
 import com.recallbot.telegram.dto.ChatDto;
 import com.recallbot.telegram.dto.MessageDto;
 import com.recallbot.search.ConversationContextService;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -188,7 +189,8 @@ public class AskCommandHandler implements CommandHandler {
             }
             long authMs = System.currentTimeMillis() - stageStart;
 
-            try (TenantContext.TenantScope ignored = TenantContext.with(group.getId())) {
+            try (TenantContext.TenantScope scope = TenantContext.with(group.getId())) {
+                Objects.requireNonNull(scope);
                 // 5. Follow-up resolution and query expansion
                 var followUpRes = conversationContextService.resolveFollowUp(group.getId(), question);
                 String effectiveSearchQuery = followUpRes.effectiveQuery();
