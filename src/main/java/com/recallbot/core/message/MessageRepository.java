@@ -24,6 +24,18 @@ public interface MessageRepository extends JpaRepository<MessageEntity, Long> {
 
     long countByGroupId(Long groupId);
 
+    long countByGroupIdAndEmbeddingStatus(Long groupId, EmbeddingStatus embeddingStatus);
+
+    long countByEmbeddingStatus(EmbeddingStatus embeddingStatus);
+
+    List<MessageEntity> findByGroupIdAndEmbeddingStatus(Long groupId, EmbeddingStatus embeddingStatus, Pageable pageable);
+
+    List<MessageEntity> findByGroupIdAndEmbeddingStatus(Long groupId, EmbeddingStatus embeddingStatus);
+
+    List<MessageEntity> findByEmbeddingStatus(EmbeddingStatus embeddingStatus, Pageable pageable);
+
+    List<MessageEntity> findByEmbeddingStatus(EmbeddingStatus embeddingStatus);
+
     Page<MessageEntity> findByGroupId(Long groupId, Pageable pageable);
 
     @Query("""

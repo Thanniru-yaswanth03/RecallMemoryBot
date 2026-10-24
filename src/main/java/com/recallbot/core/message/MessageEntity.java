@@ -63,6 +63,19 @@ public class MessageEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "embedding_status", nullable = false, length = 32)
+    private EmbeddingStatus embeddingStatus = EmbeddingStatus.PENDING;
+
+    @Column(name = "embedding_error", columnDefinition = "TEXT")
+    private String embeddingError;
+
+    @Column(name = "embedding_attempts", nullable = false)
+    private int embeddingAttempts = 0;
+
+    @Column(name = "last_attempt_at")
+    private Instant lastAttemptAt;
+
     public MessageEntity() {
     }
 
@@ -73,6 +86,7 @@ public class MessageEntity {
         this.content = content;
         this.sentAt = sentAt;
         this.messageType = MessageType.TEXT;
+        this.embeddingStatus = EmbeddingStatus.PENDING;
     }
 
     @PrePersist
@@ -82,6 +96,9 @@ public class MessageEntity {
         }
         if (this.messageType == null) {
             this.messageType = MessageType.TEXT;
+        }
+        if (this.embeddingStatus == null) {
+            this.embeddingStatus = EmbeddingStatus.PENDING;
         }
     }
 
@@ -159,6 +176,38 @@ public class MessageEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public EmbeddingStatus getEmbeddingStatus() {
+        return embeddingStatus;
+    }
+
+    public void setEmbeddingStatus(EmbeddingStatus embeddingStatus) {
+        this.embeddingStatus = embeddingStatus;
+    }
+
+    public String getEmbeddingError() {
+        return embeddingError;
+    }
+
+    public void setEmbeddingError(String embeddingError) {
+        this.embeddingError = embeddingError;
+    }
+
+    public int getEmbeddingAttempts() {
+        return embeddingAttempts;
+    }
+
+    public void setEmbeddingAttempts(int embeddingAttempts) {
+        this.embeddingAttempts = embeddingAttempts;
+    }
+
+    public Instant getLastAttemptAt() {
+        return lastAttemptAt;
+    }
+
+    public void setLastAttemptAt(Instant lastAttemptAt) {
+        this.lastAttemptAt = lastAttemptAt;
     }
 
     @Override

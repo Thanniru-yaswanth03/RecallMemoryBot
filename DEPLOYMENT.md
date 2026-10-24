@@ -284,3 +284,59 @@ docker exec -i recall-pgvector pg_restore -U recall_user -d recall_db --clean --
 | Telegram retries updates repeatedly | Webhook controller taking $> 5\text{s}$ | The controller is asynchronous by design. Check for blocking calls or reverse proxy timeout settings. |
 | Memory queries return fallback | No vector matches or AI outage | Verify `messages` are vectorized in database and OpenRouter API key has sufficient balance. |
 | High memory usage in container | JVM max RAM percentage | Container is pre-configured with `-XX:MaxRAMPercentage=75.0`. Increase host RAM if group volume exceeds 500k messages. |
+| Bot ignores regular group messages | Telegram Privacy Mode enabled | Disable Privacy Mode via `@BotFather` or promote bot to Group Admin with "Read Messages" permission. |
+
+---
+
+## 9. Telegram Group Privacy Mode & Message Visibility
+
+By default, Telegram bots operate with **Group Privacy Mode enabled**. In this mode, the Telegram Bot API **strictly withholds normal group chat messages** from reaching the bot's webhook. The bot ONLY receives:
+1. Messages starting with a forward slash command (e.g. `/ask`, `/recall`, `/remember`, `/forget`).
+2. Messages that explicitly `@mention` the bot's username.
+3. Direct replies to one of the bot's own previous messages.
+4. Service messages (user joined, left, pinned message).
+
+**Impact on Memory**: If Privacy Mode is active, conversational messages (e.g. "We decided to deploy on Friday", "John will handle the database migration") never reach the server, so the bot cannot store or recall them.
+
+### Enabling Full Ingestion for Groups:
+1. Open Telegram and message `@BotFather`.
+2. Send `/setprivacy`.
+3. Select your bot (e.g., `@recall_memory_bot`).
+4. Select **Disable**.
+5. Once disabled, remove and re-add the bot to your Telegram group (or promote it to **Group Administrator** with *Read Messages* permission).
+6. Verify ingestion in the Admin Dashboard (`https://<host>/admin/`) - message count should increment with normal conversation.
+
+---
+
+## 10. Database Migrations & Zero-Downtime Rollout
+
+### Flyway Migration V4 (`V4__message_embedding_status_and_hybrid_search.sql`)
+The V4 migration updates the schema to support durable ingestion state tracking and hybrid search:
+- Adds `embedding_status` (`PENDING`, `EMBEDDED`, `FAILED`, `SKIPPED`) to `messages`.
+- Adds `embedding_error`, `embedding_attempts`, and `last_attempt_at` columns.
+- Safely backfills existing vectorized messages to `EMBEDDED` and un-vectorized messages to `PENDING`.
+- Adds partial index `idx_messages_group_embedding_status` on `(group_id, embedding_status)` for sub-millisecond status queries.
+
+### Zero-Downtime Execution & Safety
+1. Flyway runs automatically on application startup.
+2. All `ALTER TABLE` statements use non-blocking metadata changes with instant defaults.
+3. No table locks or table rewrites are triggered.
+4. In case of rollback, columns can remain in place without breaking legacy readers.
+
+---
+
+## 11. Staged Retrieval & Multilingual Memory
+
+### Hybrid Retrieval Engine
+Retrieval runs a 3-way Reciprocal Rank Fusion ($k=60$):
+1. **Vector Cosine Similarity**: pgvector search across 1536-dimensional embeddings.
+2. **PostgreSQL Full-Text Search**: Lexical matching on `messages.tsv_content` using `plainto_tsquery`.
+3. **Exact Token & Identifier Search**: Exact keyword matching for unique names (`yo_siri`), task IDs (`TASK-123`), URLs, and dates.
+4. **Explicit Memory Boost**: High-priority boost for confirmed `/remember` facts.
+
+### Indic & Multilingual Support
+- **Supported Scripts**: English, Devanagari (Hindi), Telugu, Hinglish, Telugish, Romanized Indic.
+- **Cross-Lingual Dictionary Expansion**: Expands common concepts bidirectionally (e.g. `పని` ↔ `task` ↔ `काम`, `డెడ్‌లైన్` ↔ `deadline` ↔ `समय सीमा`).
+- **Slang Normalization**: Automatically expands chat shorthand (`tmrw`, `pls`, `asap`, `wip`).
+- **Follow-up Context**: 15-minute multi-turn session cache per group resolves follow-up questions ("What else?", "Who was assigned that?") and excludes previously retrieved messages.
+

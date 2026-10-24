@@ -29,6 +29,8 @@ public class PromptBuilder {
                "I don't have enough conversation history in this group to answer that question."
             4. Cite supporting messages using the exact tag format [Msg #ID] (for example: [Msg #412]).
             5. ONLY cite message IDs that actually exist in the provided <conversation_history>. Never fabricate citations.
+            6. When multiple tasks, decisions, or commitments are discussed, list all of them clearly with their respective citations.
+            7. Preserve chronology and timeline: if a later message corrects a deadline, updates an assignment, or amends an earlier decision, clearly explain the timeline sequence and state the latest supported decision (e.g. "Initially X was planned [Msg #1], but later updated to Y [Msg #2]").
 
             LANGUAGE AND MULTILINGUAL RULES:
             1. You must understand questions in any language, dialect, or script, including English, Hindi, Hinglish (Hindi written in Latin script), Telugu (తెలుగు script), Romanized Telugu (Telugu in Latin script / Telugish), Tamil, and others.
@@ -63,7 +65,29 @@ public class PromptBuilder {
      * @return the combined user prompt string
      */
     public String buildUserPrompt(String question, List<SearchHit> hits) {
+        return buildUserPrompt(question, hits, null);
+    }
+
+    /**
+     * Builds user prompt with optional previous follow-up context.
+     *
+     * @param question               the user's current question
+     * @param hits                   the retrieved relevant messages
+     * @param previousQuestionContext previous question topic if this is a follow-up
+     * @return the combined user prompt string
+     */
+    public String buildUserPrompt(String question, List<SearchHit> hits, String previousQuestionContext) {
         StringBuilder sb = new StringBuilder();
+
+        if (previousQuestionContext != null && !previousQuestionContext.isBlank()) {
+            sb.append("<conversation_context>\n");
+            sb.append("Previous question asked in this group: ")
+                    .append(sanitizeUntrustedText(previousQuestionContext.trim()))
+                    .append("\n");
+            sb.append("The user is now asking a follow-up question. Answer with additional or remaining details not fully covered previously.\n");
+            sb.append("</conversation_context>\n\n");
+        }
+
         sb.append("<conversation_history>\n");
 
         if (hits != null && !hits.isEmpty()) {

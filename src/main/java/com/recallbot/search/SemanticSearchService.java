@@ -36,4 +36,16 @@ public interface SemanticSearchService {
      * @return Ordered list of matching hits by cosine distance ascending (closest first)
      */
     List<SearchHit> searchByVector(Long groupId, float[] queryVector, int topK);
+
+    /**
+     * Performs hybrid retrieval combining vector similarity, full-text search, exact keyword
+     * matching, and explicit memory prioritization using Reciprocal Rank Fusion (RRF).
+     *
+     * @param groupId            Mandatory group ID for tenant isolation
+     * @param queryText          Query text from user
+     * @param topK               Maximum number of results to return
+     * @param excludedMessageIds Set of Telegram message IDs to exclude (e.g. for "what else?" follow-up queries)
+     * @return Ordered list of combined hits
+     */
+    List<SearchHit> searchHybrid(Long groupId, String queryText, int topK, java.util.Set<Long> excludedMessageIds);
 }

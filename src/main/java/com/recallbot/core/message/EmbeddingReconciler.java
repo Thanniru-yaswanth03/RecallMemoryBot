@@ -45,19 +45,44 @@ public class EmbeddingReconciler {
      * @return number of messages successfully backfilled
      */
     public int reconcileBatch(int batchSize) {
+        return reconcileInternal(null, batchSize);
+    }
+
+    /**
+     * On-demand reconciliation for a specific group chat.
+     *
+     * @param groupId the group ID to reconcile
+     * @return number of messages successfully backfilled
+     */
+    public int reconcileGroup(Long groupId) {
+        if (groupId == null) {
+            return 0;
+        }
+        return reconcileInternal(groupId, DEFAULT_BATCH_SIZE);
+    }
+
+    private int reconcileInternal(Long groupId, int batchSize) {
         if (batchSize <= 0) {
             return 0;
         }
 
-        List<UnembeddedMessage> missing = jdbcClient.sql("""
+        String sql = """
                 SELECT m.id, m.group_id, m.content
                 FROM messages m
                 LEFT JOIN message_embeddings me ON m.id = me.message_id
-                WHERE me.message_id IS NULL
+                WHERE (me.message_id IS NULL OR m.embedding_status IN ('PENDING', 'FAILED'))
+                  AND m.embedding_attempts < 5
+                """ + (groupId != null ? " AND m.group_id = :groupId " : "") + """
                 ORDER BY m.id ASC
                 LIMIT :batchSize
-                """)
-                .param("batchSize", batchSize)
+                """;
+
+        var query = jdbcClient.sql(sql).param("batchSize", batchSize);
+        if (groupId != null) {
+            query = query.param("groupId", groupId);
+        }
+
+        List<UnembeddedMessage> missing = query
                 .query((rs, rowNum) -> new UnembeddedMessage(
                         rs.getLong("id"),
                         rs.getLong("group_id"),
@@ -69,7 +94,7 @@ public class EmbeddingReconciler {
             return 0;
         }
 
-        log.info("Found {} un-embedded messages for reconciliation", missing.size());
+        log.info("Found {} un-embedded messages for reconciliation (groupId={})", missing.size(), groupId);
 
         List<UnembeddedMessage> validItems = new ArrayList<>();
         List<String> textsToEmbed = new ArrayList<>();
@@ -79,6 +104,17 @@ public class EmbeddingReconciler {
             if (!normalized.isBlank()) {
                 validItems.add(msg);
                 textsToEmbed.add(normalized);
+            } else {
+                // Permanently mark blank message as SKIPPED so it does not block subsequent reconciliation runs
+                jdbcClient.sql("""
+                        UPDATE messages
+                        SET embedding_status = 'SKIPPED',
+                            embedding_attempts = embedding_attempts + 1,
+                            last_attempt_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """)
+                        .param(msg.id())
+                        .update();
             }
         }
 
@@ -117,6 +153,17 @@ public class EmbeddingReconciler {
                         .param(modelName)
                         .update();
 
+                jdbcClient.sql("""
+                        UPDATE messages
+                        SET embedding_status = 'EMBEDDED',
+                            embedding_error = NULL,
+                            embedding_attempts = embedding_attempts + 1,
+                            last_attempt_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """)
+                        .param(msg.id())
+                        .update();
+
                 inserted++;
             }
 
@@ -124,6 +171,22 @@ public class EmbeddingReconciler {
             return inserted;
         } catch (Exception e) {
             log.error("Failed to reconcile message embeddings batch: {}", e.getMessage(), e);
+            for (UnembeddedMessage msg : validItems) {
+                try {
+                    jdbcClient.sql("""
+                            UPDATE messages
+                            SET embedding_status = 'FAILED',
+                                embedding_error = ?,
+                                embedding_attempts = embedding_attempts + 1,
+                                last_attempt_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                            """)
+                            .param(e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
+                            .param(msg.id())
+                            .update();
+                } catch (Exception ignored) {
+                }
+            }
             return 0;
         }
     }

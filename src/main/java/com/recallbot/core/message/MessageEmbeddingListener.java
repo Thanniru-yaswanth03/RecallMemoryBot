@@ -57,34 +57,55 @@ public class MessageEmbeddingListener {
         log.debug("Received MessagePersistedEvent for message_id={}, group_id={}, isEdit={}",
                 messageId, groupId, event.isEdit());
 
+        // Idempotency: skip if already vectorized unless this is an edit
+        if (!event.isEdit() && messageEmbeddingRepository.findByMessageId(messageId).isPresent()) {
+            log.debug("Embedding already exists for message_id={}; skipping vectorization", messageId);
+            return;
+        }
+
+        Optional<MessageEntity> messageOpt = messageRepository.findById(messageId);
+        if (messageOpt.isEmpty()) {
+            log.warn("Message with id={} not found for vectorization", messageId);
+            return;
+        }
+
+        MessageEntity message = messageOpt.get();
+
         try {
-            // Idempotency: skip if already vectorized unless this is an edit
-            if (!event.isEdit() && messageEmbeddingRepository.findByMessageId(messageId).isPresent()) {
-                log.debug("Embedding already exists for message_id={}; skipping vectorization", messageId);
-                return;
-            }
 
-            Optional<MessageEntity> messageOpt = messageRepository.findById(messageId);
-            if (messageOpt.isEmpty()) {
-                log.warn("Message with id={} not found for vectorization", messageId);
-                return;
-            }
-
-            MessageEntity message = messageOpt.get();
             String normalizedContent = textNormalizer.normalize(message.getContent());
             if (normalizedContent.isBlank()) {
                 log.debug("Message id={} normalized content is blank; skipping vectorization", messageId);
+                message.setEmbeddingStatus(EmbeddingStatus.SKIPPED);
+                message.setEmbeddingAttempts(message.getEmbeddingAttempts() + 1);
+                message.setLastAttemptAt(java.time.Instant.now());
+                messageRepository.save(message);
                 return;
             }
 
             float[] vector = embeddingService.generateEmbedding(normalizedContent);
             saveEmbedding(messageId, groupId, vector, embeddingService.getModelName());
 
+            message.setEmbeddingStatus(EmbeddingStatus.EMBEDDED);
+            message.setEmbeddingError(null);
+            message.setEmbeddingAttempts(message.getEmbeddingAttempts() + 1);
+            message.setLastAttemptAt(java.time.Instant.now());
+            messageRepository.save(message);
+
             log.info("Successfully persisted embedding for message_id={}, group_id={}, model={}",
                     messageId, groupId, embeddingService.getModelName());
         } catch (Exception e) {
             log.error("Failed to generate or persist embedding for message_id={}, group_id={}: {}",
                     messageId, groupId, e.getMessage(), e);
+            try {
+                message.setEmbeddingStatus(EmbeddingStatus.FAILED);
+                message.setEmbeddingError(e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                message.setEmbeddingAttempts(message.getEmbeddingAttempts() + 1);
+                message.setLastAttemptAt(java.time.Instant.now());
+                messageRepository.save(message);
+            } catch (Exception saveErr) {
+                log.error("Failed to update FAILED status for message_id={}: {}", messageId, saveErr.getMessage());
+            }
         }
     }
 

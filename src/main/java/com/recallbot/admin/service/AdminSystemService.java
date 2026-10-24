@@ -91,13 +91,9 @@ public class AdminSystemService {
         String chatModel = aiService != null ? aiService.getModelName() : ((properties != null && properties.ai() != null) ? properties.ai().chatModel() : "unknown");
         String embeddingModel = (properties != null && properties.ai() != null) ? properties.ai().embeddingModel() : "unknown";
 
-        // Telegram update stats
-        long processedUpdates = telegramUpdateRepository.findAll().stream()
-                .filter(u -> u.getStatus() == TelegramUpdateStatus.PROCESSED)
-                .count();
-        long failedUpdates = telegramUpdateRepository.findAll().stream()
-                .filter(u -> u.getStatus() == TelegramUpdateStatus.FAILED)
-                .count();
+        // Telegram update stats via optimized repository count queries
+        long processedUpdates = telegramUpdateRepository.countByStatus(TelegramUpdateStatus.PROCESSED);
+        long failedUpdates = telegramUpdateRepository.countByStatus(TelegramUpdateStatus.FAILED);
 
         return new AdminSystemHealthDto(
                 "UP",

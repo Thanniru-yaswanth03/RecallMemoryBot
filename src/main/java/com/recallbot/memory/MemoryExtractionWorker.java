@@ -21,12 +21,14 @@ public class MemoryExtractionWorker {
     private static final Logger log = LoggerFactory.getLogger(MemoryExtractionWorker.class);
 
     private static final Pattern DECISION_PATTERN = Pattern.compile(
-            "\\b(we decided|decided to|let's go with|agreed to|agreed that|finalized|chosen|consensus is)\\b",
+            "\\b(we decided|decided to|let's go with|agreed to|agreed that|finalized|chosen|consensus is|faisla hua|decide kiya|nirnayam teeskunnam|decide chesam)\\b",
             Pattern.CASE_INSENSITIVE
     );
 
     private static final Pattern COMMITMENT_PATTERN = Pattern.compile(
-            "\\b(i will|i'll|i promise to|assigned to|volunteered to|taking care of|responsible for)\\b",
+            "\\b(i will|i'll|i promise to|assigned to|volunteered to|taking care of|responsible for|" +
+                    "task:|task\\s*\\d+:|todo:|action item:|deadline is|due by|due date:|target is|" +
+                    "ye kaam karega|karna hai|zimmedari|ee task|pani cheyali|chestadu|badhyatha)\\b",
             Pattern.CASE_INSENSITIVE
     );
 

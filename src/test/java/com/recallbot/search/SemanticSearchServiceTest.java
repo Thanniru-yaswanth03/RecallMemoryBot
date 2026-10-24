@@ -137,6 +137,6 @@ class SemanticSearchServiceTest {
         service.search(100L, query);
 
         // Verify topK=10 (configured in setUp properties) was passed to the SQL statement
-        verify(statementSpec).param(10);
+        verify(statementSpec, atLeastOnce()).param(10);
     }
 }

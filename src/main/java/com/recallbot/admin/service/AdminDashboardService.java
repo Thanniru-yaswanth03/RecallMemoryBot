@@ -51,7 +51,7 @@ public class AdminDashboardService {
         long totalMessages = messageRepository.count();
         long totalMemories = memoryRepository.count();
         long totalEmbeddings = messageEmbeddingRepository.count();
-        long pendingEmbeddings = Math.max(0, totalMessages - totalEmbeddings);
+        long pendingEmbeddings = messageRepository.countByEmbeddingStatus(com.recallbot.core.message.EmbeddingStatus.PENDING);
 
         DashboardSummaryDto.Stats stats = new DashboardSummaryDto.Stats(
                 totalGroups,

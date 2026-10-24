@@ -23,11 +23,14 @@ import com.recallbot.security.TenantContext;
 import com.recallbot.telegram.TelegramClient;
 import com.recallbot.telegram.dto.ChatDto;
 import com.recallbot.telegram.dto.MessageDto;
+import com.recallbot.search.ConversationContextService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Handles the /ask command, orchestrating group verification, semantic retrieval,
@@ -50,6 +53,11 @@ public class AskCommandHandler implements CommandHandler {
     private final RecallProperties properties;
     private final RateLimiter rateLimiter;
 
+    private final ConversationContextService conversationContextService;
+    private final com.recallbot.core.message.MessageRepository messageRepository;
+    private final com.recallbot.core.message.EmbeddingReconciler embeddingReconciler;
+    private final com.recallbot.search.MultilingualQueryProcessor queryProcessor;
+
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AdminActivityBuffer adminActivityBuffer;
 
@@ -65,6 +73,28 @@ public class AskCommandHandler implements CommandHandler {
             RecallProperties properties,
             RateLimiter rateLimiter
     ) {
+        this(groupService, userService, groupMembershipService, semanticSearchService,
+                aiService, promptBuilder, citationValidator, telegramClient, properties, rateLimiter,
+                new ConversationContextService(), null, null, new com.recallbot.search.MultilingualQueryProcessorImpl());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AskCommandHandler(
+            GroupService groupService,
+            UserService userService,
+            GroupMembershipService groupMembershipService,
+            SemanticSearchService semanticSearchService,
+            AIService aiService,
+            PromptBuilder promptBuilder,
+            CitationValidator citationValidator,
+            TelegramClient telegramClient,
+            RecallProperties properties,
+            RateLimiter rateLimiter,
+            ConversationContextService conversationContextService,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) com.recallbot.core.message.MessageRepository messageRepository,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) com.recallbot.core.message.EmbeddingReconciler embeddingReconciler,
+            com.recallbot.search.MultilingualQueryProcessor queryProcessor
+    ) {
         this.groupService = groupService;
         this.userService = userService;
         this.groupMembershipService = groupMembershipService;
@@ -75,6 +105,10 @@ public class AskCommandHandler implements CommandHandler {
         this.telegramClient = telegramClient;
         this.properties = properties;
         this.rateLimiter = rateLimiter;
+        this.conversationContextService = conversationContextService != null ? conversationContextService : new ConversationContextService();
+        this.messageRepository = messageRepository;
+        this.embeddingReconciler = embeddingReconciler;
+        this.queryProcessor = queryProcessor != null ? queryProcessor : new com.recallbot.search.MultilingualQueryProcessorImpl();
     }
 
     public void setAdminActivityBuffer(AdminActivityBuffer adminActivityBuffer) {
@@ -155,40 +189,88 @@ public class AskCommandHandler implements CommandHandler {
             long authMs = System.currentTimeMillis() - stageStart;
 
             try (TenantContext.TenantScope ignored = TenantContext.with(group.getId())) {
-                // 5. Execute semantic search with group isolation
+                // 5. Follow-up resolution and query expansion
+                var followUpRes = conversationContextService.resolveFollowUp(group.getId(), question);
+                String effectiveSearchQuery = followUpRes.effectiveQuery();
+                Set<Long> excludedIds = followUpRes.excludedMessageIds();
+
                 int topK = (properties.search() != null && properties.search().maxCandidates() > 0)
                         ? properties.search().maxCandidates()
                         : 10;
 
                 long searchStart = System.currentTimeMillis();
-                List<SearchHit> hits = semanticSearchService.search(group.getId(), question, topK);
+                List<SearchHit> hits;
+                if (excludedIds != null && !excludedIds.isEmpty()) {
+                    hits = semanticSearchService.searchHybrid(group.getId(), effectiveSearchQuery, topK, excludedIds);
+                } else {
+                    hits = semanticSearchService.search(group.getId(), effectiveSearchQuery, topK);
+                }
                 long searchMs = System.currentTimeMillis() - searchStart;
 
-                // 6. Handle empty/no-result situation deterministically
+                // 6. Staged recovery process if no hits returned
                 if (hits == null || hits.isEmpty()) {
-                    log.info("[{}] No semantic memory hits found for group_id={}, query_len={}, search={}ms",
-                            reqId, group.getId(), question.length(), searchMs);
-                    telegramClient.sendMessage(
-                            chatId,
-                            "I don't have enough conversation history in this group to answer that question.",
-                            null,
-                            replyToMessageId
-                    );
-                    return;
+                    log.info("[{}] Initial retrieval yielded 0 hits for group_id={}, query_length={}, checking staged recovery",
+                            reqId, group.getId(), effectiveSearchQuery.length());
+
+                    if (messageRepository != null) {
+                        long totalGroupMsgs = messageRepository.countByGroupId(group.getId());
+                        if (totalGroupMsgs == 0) {
+                            telegramClient.sendMessage(chatId, "No conversation history has been recorded yet for this group.", null, replyToMessageId);
+                            return;
+                        }
+
+                        long pending = messageRepository.countByGroupIdAndEmbeddingStatus(group.getId(), com.recallbot.core.message.EmbeddingStatus.PENDING);
+                        long failed = messageRepository.countByGroupIdAndEmbeddingStatus(group.getId(), com.recallbot.core.message.EmbeddingStatus.FAILED);
+
+                        if ((pending > 0 || failed > 0) && embeddingReconciler != null) {
+                            log.info("[{}] Found {} pending/failed embeddings in group_id={}, triggering on-demand reconciliation",
+                                    reqId, (pending + failed), group.getId());
+                            int reconciled = embeddingReconciler.reconcileGroup(group.getId());
+                            if (reconciled > 0) {
+                                if (excludedIds != null && !excludedIds.isEmpty()) {
+                                    hits = semanticSearchService.searchHybrid(group.getId(), effectiveSearchQuery, topK, excludedIds);
+                                } else {
+                                    hits = semanticSearchService.search(group.getId(), effectiveSearchQuery, topK);
+                                }
+                            }
+                        }
+
+                        if (hits == null || hits.isEmpty()) {
+                            if (pending > 0 || failed > 0) {
+                                telegramClient.sendMessage(
+                                        chatId,
+                                        "Some messages in this group are currently being indexed. Please try your question again in a moment.",
+                                        null,
+                                        replyToMessageId
+                                );
+                                return;
+                            }
+                        }
+                    }
+
+                    if (hits == null || hits.isEmpty()) {
+                        telegramClient.sendMessage(
+                                chatId,
+                                "I don't have enough conversation history in this group to answer that question.",
+                                null,
+                                replyToMessageId
+                        );
+                        return;
+                    }
                 }
 
-                log.debug("[{}] Retrieved {} semantic hits in {}ms for group_id={}", reqId, hits.size(), searchMs, group.getId());
+                log.debug("[{}] Retrieved {} hybrid hits in {}ms for group_id={}", reqId, hits.size(), searchMs, group.getId());
 
-                // 7. Assemble grounded prompt with injection defense
+                // 7. Assemble grounded prompt with injection defense and follow-up context
                 String systemPrompt = promptBuilder.buildSystemPrompt();
-                String userPrompt = promptBuilder.buildUserPrompt(question, hits);
+                String userPrompt = promptBuilder.buildUserPrompt(question, hits, followUpRes.previousQuestionContext());
 
                 // 8. Generate answer via AI Service
                 long aiStart = System.currentTimeMillis();
                 String rawAnswer = aiService.generateGroundedAnswer(systemPrompt, userPrompt);
                 long aiMs = System.currentTimeMillis() - aiStart;
 
-                // 9. Sanitize and validate citations
+                // 9. Sanitize and validate citations against retrieved messages
                 String sanitizedAnswer = citationValidator.validateAndSanitize(rawAnswer, hits);
 
                 // 10. Enforce Telegram message size bounds
@@ -200,6 +282,21 @@ public class AskCommandHandler implements CommandHandler {
                 long tgStart = System.currentTimeMillis();
                 telegramClient.sendMessage(chatId, sanitizedAnswer, null, replyToMessageId);
                 long tgMs = System.currentTimeMillis() - tgStart;
+
+                // 12. Record conversation turn to support follow-ups
+                Set<Long> hitMsgIds = new HashSet<>();
+                for (SearchHit h : hits) {
+                    if (h.telegramMessageId() != null) {
+                        hitMsgIds.add(h.telegramMessageId());
+                    }
+                }
+                conversationContextService.recordTurn(
+                        group.getId(),
+                        question,
+                        followUpRes.isFollowUp(),
+                        hitMsgIds,
+                        queryProcessor.process(question).isMultiItemRequest()
+                );
 
                 long totalDurationMs = System.currentTimeMillis() - totalStart;
                 log.info("[{}] Successfully processed /{} for group_id={} in {}ms (auth={}ms, search={}ms, ai={}ms, telegram={}ms, hits={})",
