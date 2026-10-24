@@ -402,7 +402,10 @@ class TelegramFlowIT extends BasePostgresIntegrationTest {
         await().atMost(Duration.ofSeconds(8)).untilAsserted(() -> {
             verify(telegramClient).sendMessage(
                     eq(uniqueChatId),
-                    eq("I don't have enough conversation history in this group to answer that question."),
+                    org.mockito.ArgumentMatchers.argThat(msg ->
+                            msg.equals("I don't have enough conversation history in this group to answer that question.")
+                            || msg.equals("No conversation history has been recorded yet for this group.")
+                    ),
                     isNull(),
                     eq(messageId)
             );

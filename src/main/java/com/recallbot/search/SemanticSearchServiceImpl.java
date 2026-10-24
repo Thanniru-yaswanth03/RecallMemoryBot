@@ -106,7 +106,20 @@ public class SemanticSearchServiceImpl implements SemanticSearchService {
 
     @Override
     public List<SearchHit> search(Long groupId, String queryText, int topK) {
-        return searchHybrid(groupId, queryText, topK, Collections.emptySet());
+        if (groupId == null) {
+            throw new IllegalArgumentException("groupId must not be null for group isolation");
+        }
+        if (queryText == null || queryText.isBlank() || topK <= 0) {
+            return Collections.emptyList();
+        }
+
+        String normalizedQuery = textNormalizer != null ? textNormalizer.normalize(queryText) : queryText;
+        if (normalizedQuery.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        float[] queryVector = embeddingService.generateEmbedding(normalizedQuery);
+        return searchByVector(groupId, queryVector, topK);
     }
 
     @Override
@@ -203,21 +216,7 @@ public class SemanticSearchServiceImpl implements SemanticSearchService {
         List<SearchHit> finalHits = hitScores.values().stream()
                 .filter(hs -> hs.hit.telegramMessageId() == null || !exclusions.contains(hs.hit.telegramMessageId()))
                 .sorted(Comparator.comparingDouble(HitScore::getScore).reversed())
-                .map(hs -> {
-                    // Normalize distance for SearchHit (distance = 1.0 - normalized score)
-                    double normDist = Math.max(0.0, 1.0 - (hs.score * 10.0));
-                    return new SearchHit(
-                            hs.hit.messageId(),
-                            hs.hit.telegramMessageId(),
-                            hs.hit.groupId(),
-                            hs.hit.userId(),
-                            hs.hit.username(),
-                            hs.hit.firstName(),
-                            hs.hit.content(),
-                            hs.hit.sentAt(),
-                            normDist
-                    );
-                })
+                .map(hs -> hs.hit)
                 .limit(topK)
                 .toList();
 

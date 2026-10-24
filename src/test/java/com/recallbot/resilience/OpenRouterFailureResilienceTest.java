@@ -3,6 +3,7 @@ package com.recallbot.resilience;
 import com.recallbot.ai.AIService;
 import com.recallbot.ai.EmbeddingService;
 import com.recallbot.ai.citation.CitationValidator;
+import com.recallbot.ai.exception.AIProviderUnavailableException;
 import com.recallbot.ai.openrouter.OpenRouterChatClient;
 import com.recallbot.ai.prompt.PromptBuilder;
 import com.recallbot.config.properties.RecallProperties;
@@ -106,7 +107,7 @@ class OpenRouterFailureResilienceTest extends BasePostgresIntegrationTest {
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
 
         assertThatThrownBy(() -> client.generateGroundedAnswer("System", "User question"))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(AIProviderUnavailableException.class)
                 .hasMessageContaining("failed after 3 attempts");
 
         mockServer.verify();
@@ -127,7 +128,7 @@ class OpenRouterFailureResilienceTest extends BasePostgresIntegrationTest {
                 });
 
         assertThatThrownBy(() -> client.generateGroundedAnswer("System", "User question"))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(AIProviderUnavailableException.class)
                 .hasMessageContaining("failed after 3 attempts");
 
         mockServer.verify();

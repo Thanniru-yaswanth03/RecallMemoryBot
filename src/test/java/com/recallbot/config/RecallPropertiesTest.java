@@ -27,7 +27,7 @@ class RecallPropertiesTest extends BasePostgresIntegrationTest {
 
         // AI section
         assertThat(recallProperties.ai()).isNotNull();
-        assertThat(recallProperties.ai().chatModel()).isEqualTo("anthropic/claude-3-haiku");
+        assertThat(recallProperties.ai().chatModel()).isEqualTo("inclusionai/ling-3.0-flash-sante:free");
         assertThat(recallProperties.ai().embeddingModel()).isEqualTo("openai/text-embedding-3-small");
         assertThat(recallProperties.ai().embeddingDimension()).isEqualTo(1536);
         assertThat(recallProperties.ai().timeoutSeconds()).isEqualTo(30);
